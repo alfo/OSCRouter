@@ -41,6 +41,7 @@ void ItemState::GetStateName(EnumState state, QString& name)
   name = QString();
 }
 
+#ifndef OSCROUTER_HEADLESS
 void ItemState::GetStateColor(EnumState state, QColor& color)
 {
   switch (state)
@@ -52,6 +53,7 @@ void ItemState::GetStateColor(EnumState state, QColor& color)
 
   color = MUTED_COLOR;
 }
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 

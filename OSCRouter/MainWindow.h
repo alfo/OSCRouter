@@ -44,17 +44,14 @@
 #include "Router.h"
 #endif
 
+// FileUtils and the ".osc.txt" parsing and serialisation used below now live
+// here, shared with the headless daemon.
+#ifndef CONFIG_FILE_H
+#include "ConfigFile.h"
+#endif
+
 class EosPlatform;
 class LogWidget;
-
-////////////////////////////////////////////////////////////////////////////////
-
-class FileUtils
-{
-public:
-  static QString QuotedString(const QString& str);
-  static void GetItemsFromQuotedString(const QString& str, QStringList& items);
-};
 
 ////////////////////////////////////////////////////////////////////////////////
 

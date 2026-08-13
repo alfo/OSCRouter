@@ -36,7 +36,11 @@ typedef uint8_t SystemNumber;
 typedef uint16_t GroupNumber;
 typedef uint32_t PointNumber;
 typedef uint8_t PriorityNumber;
-typedef uint64_t TimestampNumber;
+// Deliberately quint64 rather than uint64_t. Both are 64 bits, but on 64-bit
+// Linux uint64_t is "unsigned long" while quint64 is "unsigned long long", and
+// QDataStream only has overloads for the latter -- so uint64_t here fails to
+// compile there while being fine on macOS and Windows.
+typedef quint64 TimestampNumber;
 typedef uint32_t FolioNumber;
 typedef uint16_t PageNumber;
 

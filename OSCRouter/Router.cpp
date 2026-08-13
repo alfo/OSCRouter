@@ -1296,7 +1296,7 @@ void RouterThread::DestroysACN(sACN& sacn)
     sacn.server->Shutdown();
     IPlatformStreamACNSrv::DestroyInstance(sacn.server);
     sacn.server = nullptr;
-    m_PrivateLog.AddInfo(QLatin1String("sACN server destroyed").toUtf8().constData());
+    m_PrivateLog.AddInfo("sACN server destroyed");
   }
 
   if (sacn.client)
@@ -1304,7 +1304,7 @@ void RouterThread::DestroysACN(sACN& sacn)
     sacn.client->Shutdown();
     IPlatformStreamACNCli::DestroyInstance(sacn.client);
     sacn.client = nullptr;
-    m_PrivateLog.AddInfo(QLatin1String("sACN client destroyed").toUtf8().constData());
+    m_PrivateLog.AddInfo("sACN client destroyed");
   }
 
   if (sacn.net)
@@ -1312,7 +1312,7 @@ void RouterThread::DestroysACN(sACN& sacn)
     sacn.net->Shutdown();
     IPlatformAsyncSocketServ::DestroyInstance(sacn.net);
     sacn.net = nullptr;
-    m_PrivateLog.AddInfo(QLatin1String("sACN networking destroyed").toUtf8().constData());
+    m_PrivateLog.AddInfo("sACN networking destroyed");
   }
 
   sacn.ifaces.clear();
@@ -1352,17 +1352,17 @@ void RouterThread::BuildsACN(ROUTES_BY_PORT& routesByPort, ROUTES_BY_PORT& route
   sacn.net = IPlatformAsyncSocketServ::CreateInstance();
   if (sacn.net)
   {
-    m_PrivateLog.AddInfo(QLatin1String("sACN networking created").toUtf8().constData());
+    m_PrivateLog.AddInfo("sACN networking created");
   }
   else
   {
-    m_PrivateLog.AddError(QLatin1String("sACN networking creation failed").toUtf8().constData());
+    m_PrivateLog.AddError("sACN networking creation failed");
     return;
   }
 
   if (sacn.net->Startup())
   {
-    m_PrivateLog.AddInfo(QLatin1String("sACN networking started").toUtf8().constData());
+    m_PrivateLog.AddInfo("sACN networking started");
 
     if (!m_Settings.sACNIP.isEmpty())
     {
@@ -1386,7 +1386,7 @@ void RouterThread::BuildsACN(ROUTES_BY_PORT& routesByPort, ROUTES_BY_PORT& route
   }
   else
   {
-    m_PrivateLog.AddError(QLatin1String("sACN networking startup failed").toUtf8().constData());
+    m_PrivateLog.AddError("sACN networking startup failed");
     DestroysACN(sacn);
     return;
   }
@@ -1396,11 +1396,11 @@ void RouterThread::BuildsACN(ROUTES_BY_PORT& routesByPort, ROUTES_BY_PORT& route
     sacn.client = IPlatformStreamACNCli::CreateInstance();
     if (sacn.client)
     {
-      m_PrivateLog.AddInfo(QLatin1String("sACN client created").toUtf8().constData());
+      m_PrivateLog.AddInfo("sACN client created");
 
       if (sacn.client->Startup(sacn.net, this))
       {
-        m_PrivateLog.AddInfo(QLatin1String("sACN client started").toUtf8().constData());
+        m_PrivateLog.AddInfo("sACN client started");
 
         for (ROUTES_BY_PORT::const_iterator universeIter = routesBysACNUniverse.begin(); universeIter != routesBysACNUniverse.end(); ++universeIter)
         {
@@ -1423,11 +1423,11 @@ void RouterThread::BuildsACN(ROUTES_BY_PORT& routesByPort, ROUTES_BY_PORT& route
       {
         IPlatformStreamACNCli::DestroyInstance(sacn.client);
         sacn.client = nullptr;
-        m_PrivateLog.AddError(QLatin1String("sACN client startup failed").toUtf8().constData());
+        m_PrivateLog.AddError("sACN client startup failed");
       }
     }
     else
-      m_PrivateLog.AddError(QLatin1String("sACN client creation failed").toUtf8().constData());
+      m_PrivateLog.AddError("sACN client creation failed");
   }
 
   if (hasOutput)
@@ -1435,21 +1435,21 @@ void RouterThread::BuildsACN(ROUTES_BY_PORT& routesByPort, ROUTES_BY_PORT& route
     sacn.server = IPlatformStreamACNSrv::CreateInstance();
     if (sacn.server)
     {
-      m_PrivateLog.AddInfo(QLatin1String("sACN server created").toUtf8().constData());
+      m_PrivateLog.AddInfo("sACN server created");
 
       if (sacn.server->Startup(sacn.net))
       {
-        m_PrivateLog.AddInfo(QLatin1String("sACN server started").toUtf8().constData());
+        m_PrivateLog.AddInfo("sACN server started");
       }
       else
       {
         IPlatformStreamACNSrv::DestroyInstance(sacn.server);
         sacn.server = nullptr;
-        m_PrivateLog.AddError(QLatin1String("sACN server startup failed").toUtf8().constData());
+        m_PrivateLog.AddError("sACN server startup failed");
       }
     }
     else
-      m_PrivateLog.AddError(QLatin1String("sACN server creation failed").toUtf8().constData());
+      m_PrivateLog.AddError("sACN server creation failed");
   }
 
   if (!sacn.client)
@@ -1564,7 +1564,7 @@ void RouterThread::BuildArtNet(ROUTES_BY_PORT& routesByPort, ROUTES_BY_PORT& rou
     artnet.server = artnet_new(m_Settings.artNetIP.isEmpty() ? nullptr : m_Settings.artNetIP.toLatin1().constData(), 0);
     if (artnet.server)
     {
-      m_PrivateLog.AddInfo(QLatin1String("ArtNet server created").toUtf8().constData());
+      m_PrivateLog.AddInfo("ArtNet server created");
 
       artnet_set_node_type(artnet.server, ARTNET_RAW);
       artnet_set_short_name(artnet.server, VER_PRODUCTNAME_STR);
@@ -1572,15 +1572,15 @@ void RouterThread::BuildArtNet(ROUTES_BY_PORT& routesByPort, ROUTES_BY_PORT& rou
 
       if (artnet_start(artnet.server) != ARTNET_EOK)
       {
-        m_PrivateLog.AddInfo(QLatin1String("ArtNet server startup failed").toUtf8().constData());
+        m_PrivateLog.AddInfo("ArtNet server startup failed");
         artnet_destroy(artnet.server);
         artnet.server = nullptr;
       }
       else
-        m_PrivateLog.AddInfo(QLatin1String("ArtNet server started").toUtf8().constData());
+        m_PrivateLog.AddInfo("ArtNet server started");
     }
     else
-      m_PrivateLog.AddError(QLatin1String("ArtNet server creation failed").toUtf8().constData());
+      m_PrivateLog.AddError("ArtNet server creation failed");
 
     ItemState::EnumState state = artnet.server ? ItemState::STATE_CONNECTED : ItemState::STATE_NOT_CONNECTED;
     SetItemState(routesByPort, Protocol::kArtNet, state);
@@ -3720,7 +3720,8 @@ void RouterThread::RecvMIDI(OSCParser& oscParser, PacketLogger& packetLogger, bo
 
     LogMIDI(/*send*/ false, portIter->second.name, message);
 
-    packetLogger.SetPrefix(QStringLiteral("MIDI IN  [%1] ").arg(portIter->second.name).toUtf8().constData());
+    // Converted explicitly: QString::arg has no std::string overload before Qt 6.9.
+    packetLogger.SetPrefix(QStringLiteral("MIDI IN  [%1] ").arg(QString::fromStdString(portIter->second.name)).toUtf8().constData());
 
     // raw MIDI
     {

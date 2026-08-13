@@ -57,3 +57,4 @@ moc_*.cpp
 qt.qrc.cpp
 OSCRouter/x64
 build
+build*/

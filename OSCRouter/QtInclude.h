@@ -42,8 +42,15 @@
 #endif
 
 #include <QtCore/QtCore>
+
+// The headless daemon (oscrouterd) builds the routing engine without any user
+// interface, so it links neither Qt Gui nor Qt Widgets. Nothing reachable from
+// Router.h needs them; only the widgets in MainWindow.cpp and LogWidget.cpp do.
+#ifndef OSCROUTER_HEADLESS
 #include <QtGui/QtGui>
 #include <QtWidgets/QtWidgets>
+#endif
+
 #include <QtNetwork/QtNetwork>
 #include <QtQml/QJSEngine>
 

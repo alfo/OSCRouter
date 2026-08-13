@@ -16,6 +16,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <pthread.h>
+// Darwin's headers pull this in transitively; glibc's do not.
+#include <string.h>
 
 #include "deftypes.h"
 #include "defpack.h"
@@ -1182,7 +1184,10 @@ int CAsyncSocketServ::SocketMcastBind(int sockfd, bool isv4, IPPort port, CIPAdd
 	memset(&saddr, 0, sizeof(struct sockaddr_storage));	
 	if(isv4)
 	{
+// sockaddr_storage has no ss_len outside the BSDs; it is informational there.
+#ifdef HAVE_SOCKADDR_SA_LEN
 		saddr.ss_len = sizeof(struct sockaddr_in);
+#endif
 		saddr.ss_family = AF_INET;
 		if(!mcast_bind)
 			((struct sockaddr_in*)&saddr)->sin_addr.s_addr = htonl(INADDR_ANY);
@@ -1194,7 +1199,10 @@ int CAsyncSocketServ::SocketMcastBind(int sockfd, bool isv4, IPPort port, CIPAdd
 	}
 	else
 	{
+// sockaddr_storage has no ss_len outside the BSDs; it is informational there.
+#ifdef HAVE_SOCKADDR_SA_LEN
 		saddr.ss_len = sizeof(struct sockaddr_in6);
+#endif
 		saddr.ss_family = AF_INET6;
 		if(!mcast_bind)
 			((struct sockaddr_in6*)&saddr)->sin6_addr = in6addr_any;
@@ -1217,7 +1225,10 @@ int CAsyncSocketServ::SocketUnicastBind(socketref* pref, bool isv4)
 	
 	if(isv4)
 	{
+// sockaddr_storage has no ss_len outside the BSDs; it is informational there.
+#ifdef HAVE_SOCKADDR_SA_LEN
 		saddr.ss_len = sizeof(struct sockaddr_in);
+#endif
 		saddr.ss_family = AF_INET;
 		((struct sockaddr_in*)&saddr)->sin_addr.s_addr = htonl(pref->boundaddr.GetV4Address()); 
 		((struct sockaddr_in*)&saddr)->sin_port = htons(pref->boundaddr.GetIPPort());  //If it is port 0, it will be bound to a unique local port
@@ -1226,7 +1237,10 @@ int CAsyncSocketServ::SocketUnicastBind(socketref* pref, bool isv4)
 	}
 	else
 	{
+// sockaddr_storage has no ss_len outside the BSDs; it is informational there.
+#ifdef HAVE_SOCKADDR_SA_LEN
 		saddr.ss_len = sizeof(struct sockaddr_in);
+#endif
 		saddr.ss_family = AF_INET6;
 		memcpy(((struct sockaddr_in6*)&saddr)->sin6_addr.s6_addr, pref->boundaddr.GetV6Address(), CIPAddr::ADDRBYTES);
 		((struct sockaddr_in6*)&saddr)->sin6_port = htons(pref->boundaddr.GetIPPort());

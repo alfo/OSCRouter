@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OSCRouter</title>
+<!-- Relative so the page works unchanged under a Home Assistant ingress prefix. -->
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>OSCRouter</h1>
+  <div class="status">
+    <span id="runIndicator" class="indicator"></span>
+    <span id="runLabel">connecting…</span>
+  </div>
+  <div class="spacer"></div>
+  <label class="mute-all"><input type="checkbox" id="muteAllIncoming"> Mute incoming</label>
+  <label class="mute-all"><input type="checkbox" id="muteAllOutgoing"> Mute outgoing</label>
+  <button id="startBtn" class="btn">Start</button>
+  <button id="stopBtn" class="btn">Stop</button>
+  <button id="applyBtn" class="btn primary">Save &amp; Apply</button>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-panel="routing">Routing</button>
+  <button class="tab" data-panel="tcp">TCP Connections</button>
+  <button class="tab" data-panel="settings">Settings</button>
+  <button class="tab" data-panel="file">File</button>
+</nav>
+
+<main>
+  <section id="panel-routing" class="panel active">
+    <div class="table-scroll">
+      <table id="routesTable">
+        <thead>
+          <tr>
+            <th class="col-narrow" title="Enable this route">On</th>
+            <th class="col-narrow" title="Mute the destination">Mute</th>
+            <th>Label</th>
+            <th class="group-start" colspan="2">Incoming</th>
+            <th>IP</th>
+            <th>Port</th>
+            <th>Path</th>
+            <th>Protocol</th>
+            <th>Min</th>
+            <th>Max</th>
+            <th class="group-start" colspan="2">Outgoing</th>
+            <th>IP</th>
+            <th>Port</th>
+            <th>Path</th>
+            <th>Protocol</th>
+            <th>Min</th>
+            <th>Max</th>
+            <th>Script</th>
+            <th class="col-narrow"></th>
+          </tr>
+        </thead>
+        <tbody id="routesBody"></tbody>
+      </table>
+    </div>
+    <button id="addRoute" class="btn">Add route</button>
+  </section>
+
+  <section id="panel-tcp" class="panel">
+    <div class="table-scroll">
+      <table id="tcpTable">
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Mode</th>
+            <th>Framing</th>
+            <th>IP</th>
+            <th>Port</th>
+            <th class="col-narrow"></th>
+          </tr>
+        </thead>
+        <tbody id="tcpBody"></tbody>
+      </table>
+    </div>
+    <button id="addTcp" class="btn">Add connection</button>
+  </section>
+
+  <section id="panel-settings" class="panel">
+    <div class="settings-grid">
+      <label for="sACNIP">sACN interface</label>
+      <input list="interfaces" id="sACNIP" placeholder="default">
+
+      <label for="artNetIP">Art-Net interface</label>
+      <input list="interfaces" id="artNetIP" placeholder="default">
+
+      <label for="otpIP">OTP interface</label>
+      <input list="interfaces" id="otpIP" placeholder="default">
+
+      <label for="levelChangesOnly">Level changes only</label>
+      <input type="checkbox" id="levelChangesOnly">
+
+      <label>OTP modules</label>
+      <div id="otpModules" class="checkbox-row"></div>
+
+      <label for="globalScript">Global script</label>
+      <textarea id="globalScript" rows="8" spellcheck="false"></textarea>
+    </div>
+    <datalist id="interfaces"></datalist>
+  </section>
+
+  <section id="panel-file" class="panel">
+    <p class="hint">The routing configuration exactly as stored on disk. Saving here replaces the whole configuration.</p>
+    <textarea id="rawFile" spellcheck="false"></textarea>
+    <button id="saveFile" class="btn">Save file</button>
+  </section>
+</main>
+
+<section class="log">
+  <div class="log-header">
+    <span>Log</span>
+    <div class="spacer"></div>
+    <label><input type="checkbox" id="autoScroll" checked> Follow</label>
+    <button id="clearLog" class="btn small">Clear</button>
+  </div>
+  <div id="logBody" class="log-body"></div>
+</section>
+
+<div id="toast" class="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -50,7 +50,10 @@ public:
   bool dirty = false;
 
   static void GetStateName(EnumState state, QString& name);
+#ifndef OSCROUTER_HEADLESS
+  // Needs Qt Gui; the daemon reports the state enum and lets the browser colour it.
   static void GetStateColor(EnumState state, QColor& color);
+#endif
 };
 
 ////////////////////////////////////////////////////////////////////////////////

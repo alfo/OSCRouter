@@ -45,74 +45,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-QString FileUtils::QuotedString(const QString& str)
-{
-  // "test" -> """test"""
-  // test,  -> "test,"
-
-  QString quoted(str);
-  quoted.replace("\"", "\"\"");
-  if (quoted.contains('\"') || quoted.contains(','))
-  {
-    quoted.prepend("\"");
-    quoted.append("\"");
-  }
-
-  quoted.replace("\n", "\\n");
-
-  return quoted;
-}
-
-void FileUtils::GetItemsFromQuotedString(const QString& str, QStringList& items)
-{
-  items.clear();
-
-  int len = str.size();
-  int index = 0;
-  bool quoted = false;
-  for (int i = 0; i <= len; i++)
-  {
-    if (i >= len || (str[i] == QChar(',') && !quoted))
-    {
-      int itemLen = (i - index);
-      if (itemLen > 0)
-      {
-        QString item(str.mid(index, itemLen).trimmed());
-
-        // remove quotes
-        if (item.startsWith('\"') && item.endsWith('\"'))
-        {
-          itemLen = (item.size() - 2);
-          if (itemLen > 0)
-            item = item.mid(1, itemLen);
-          else
-            item.clear();
-        }
-
-        // fix quoted quotes
-        item.replace("\"\"", "\"");
-
-        // replace newlines
-        item.replace("\\n", "\n");
-
-        items.push_back(item);
-      }
-      else
-        items.push_back(QString());
-
-      index = (i + 1);
-    }
-    else if (str[i] == QChar('\"'))
-    {
-      if (!quoted)
-        quoted = true;
-      else if ((i + 1) >= len || str[i + 1] != QChar('\"'))
-        quoted = false;
-      else
-        ++i;
-    }
-  }
-}
+// FileUtils is implemented in ConfigFile.cpp, shared with the headless daemon.
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -906,45 +839,14 @@ void TcpWidget::Load(const QStringList& lines)
 
 void TcpWidget::LoadLine(const QString& line, Router::CONNECTIONS& connections)
 {
-  QStringList items;
-  FileUtils::GetItemsFromQuotedString(line, items);
-
-  if (items.size() == 5)
-  {
-    Router::sConnection connection;
-
-    connection.label = items[0];
-
-    bool ok = false;
-    int n = items[1].toInt(&ok);
-    connection.server = (ok && n != 0);
-
-    n = items[2].toInt(&ok);
-    connection.frameMode = ((ok && n >= 0 && n < OSCStream::FRAME_MODE_COUNT) ? static_cast<OSCStream::EnumFrameMode>(n) : OSCStream::FRAME_MODE_INVALID);
-
-    connection.addr.ip = items[3];
-    connection.addr.port = items[4].toUShort();
-
-    connections.push_back(connection);
-  }
+  ConfigFile::LoadConnectionLine(line, connections);
 }
 
 void TcpWidget::Save(QTextStream& stream)
 {
   Router::CONNECTIONS connections;
   SaveConnections(connections, /*itemStateTable*/ nullptr);
-
-  for (Router::CONNECTIONS::const_iterator i = connections.begin(); i != connections.end(); i++)
-  {
-    const Router::sConnection& connection = *i;
-
-    stream << FileUtils::QuotedString(connection.label);
-    stream << QStringLiteral(",%1").arg(static_cast<int>(connection.server ? 1 : 0));
-    stream << QStringLiteral(",%1").arg(static_cast<int>(connection.frameMode));
-    stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(connection.addr.ip));
-    stream << QStringLiteral(",%1").arg(connection.addr.port);
-    stream << QLatin1Char('\n');
-  }
+  ConfigFile::SaveConnections(stream, connections);
 }
 
 void TcpWidget::SaveConnections(Router::CONNECTIONS& connections, ItemStateTable* itemStateTable)
@@ -1261,34 +1163,7 @@ void SettingsWidget::Load(const QStringList& lines)
 
 void SettingsWidget::LoadLine(const QString& line, Router::Settings& settings)
 {
-  QStringList items;
-  FileUtils::GetItemsFromQuotedString(line, items);
-
-  if (items.size() >= 3 && items[0].compare(QLatin1String("Settings"), Qt::CaseInsensitive) == 0)
-  {
-    settings.sACNIP = items[1];
-    settings.artNetIP = items[2];
-    if (items.size() > 3)
-      settings.levelChangesOnly = items[3].toInt() != 0;
-    if (items.size() > 4)
-      settings.script = items[4];
-    if (items.size() > 5)
-      settings.otpIP = items[5];
-    if (items.size() > 6)
-    {
-      settings.otpModuleTypes.clear();
-
-      for (qsizetype moduleIndex = 0; moduleIndex < static_cast<qsizetype>(otp::ModuleType::kCount); ++moduleIndex)
-      {
-        qsizetype offset = moduleIndex + 6;
-        if (offset >= items.size())
-          break;
-
-        if (items[offset].toInt() != 0)
-          settings.otpModuleTypes.insert(static_cast<otp::ModuleType>(moduleIndex));
-      }
-    }
-  }
+  ConfigFile::LoadSettingsLine(line, settings);
 }
 
 void SettingsWidget::LoadSettings(const Router::Settings& settings)
@@ -1312,20 +1187,7 @@ void SettingsWidget::Save(QTextStream& stream)
   Router::Settings settings;
   SaveSettings(settings);
 
-  stream << QStringLiteral("Settings,%1,%2,%3,%4,%5")
-                .arg(FileUtils::QuotedString(settings.sACNIP))
-                .arg(FileUtils::QuotedString(settings.artNetIP))
-                .arg(settings.levelChangesOnly ? 1 : 0)
-                .arg(FileUtils::QuotedString(settings.script))
-                .arg(FileUtils::QuotedString(settings.otpIP));
-
-  for (size_t moduleIndex = 0; moduleIndex < m_OTPModules.size(); ++moduleIndex)
-  {
-    bool moduleEnabled = settings.otpModuleTypes.find(static_cast<otp::ModuleType>(moduleIndex)) != settings.otpModuleTypes.end();
-    stream << "," + QString::number(moduleEnabled ? 1 : 0);
-  }
-
-  stream << QLatin1Char('\n');
+  ConfigFile::SaveSettings(stream, settings);
 }
 
 void SettingsWidget::SaveSettings(Router::Settings& settings)
@@ -1566,10 +1428,7 @@ QString ProtocolComboBox::ProtocolName(Protocol protocol)
 
 Protocol ProtocolComboBox::SanitizedProtocol(int protocol)
 {
-  if (protocol < 0 || protocol >= static_cast<int>(Protocol::kCount))
-    return Protocol::kDefault;
-
-  return static_cast<Protocol>(protocol);
+  return ConfigFile::SanitizeProtocol(protocol);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1961,59 +1820,7 @@ void RoutingWidget::Load(const QStringList& lines)
 
 void RoutingWidget::LoadLine(const QString& line, Router::ROUTES& routes, ItemStateTable& itemStateTable)
 {
-  QStringList items;
-  FileUtils::GetItemsFromQuotedString(line, items);
-  if (items.isEmpty())
-    return;
-
-  if (items.size() > 10)
-  {
-    Router::sRoute route;
-
-    route.label = items[0];
-    route.src.addr.ip = items[1];
-    route.src.addr.port = items[2].toUShort();
-    route.src.path = items[3];
-    StringToTransform(items[4], route.dst.inMin);
-    StringToTransform(items[5], route.dst.inMax);
-
-    route.dst.addr.ip = items[6];
-    route.dst.addr.port = items[7].toUShort();
-    route.dst.path = items[8];
-    StringToTransform(items[9], route.dst.outMin);
-    StringToTransform(items[10], route.dst.outMax);
-
-    if (items.size() > 11)
-    {
-      route.dst.scriptText = items[11];
-      route.dst.script = !route.dst.scriptText.isEmpty();
-    }
-
-    if (items.size() > 12)
-      route.src.multicastInterfaceIP = items[12];
-
-    if (items.size() > 13)
-      route.src.protocol = ProtocolComboBox::SanitizedProtocol(items[13].toInt());
-
-    if (items.size() > 14)
-      route.dst.protocol = ProtocolComboBox::SanitizedProtocol(items[14].toInt());
-
-    if (items.size() > 15)
-      route.enable = (items[15].toInt() != 0);
-
-    if (items.size() > 16)
-      route.mute = (items[16].toInt() == 0);
-
-    if (items.size() > 17)
-      route.dst.multicastInterfaceIP = items[17];
-
-    routes.push_back(route);
-  }
-  else if (items.size() == 3 && items[0].compare(QLatin1String("Mute"), Qt::CaseInsensitive) == 0)
-  {
-    itemStateTable.SetMuteAllIncoming(items[0].toInt() != 0);
-    itemStateTable.SetMuteAllOutgoing(items[1].toInt() != 0);
-  }
+  ConfigFile::LoadRouteLine(line, routes, itemStateTable);
 }
 
 void RoutingWidget::Save(QTextStream& stream)
@@ -2021,42 +1828,7 @@ void RoutingWidget::Save(QTextStream& stream)
   Router::ROUTES routes;
   ItemStateTable itemStateTable;
   SaveRoutes(routes, itemStateTable);
-
-  stream << QStringLiteral("Mute,%1,%2\n").arg(itemStateTable.GetMuteAllIncoming() ? 1 : 0).arg(itemStateTable.GetMuteAllOutgoing() ? 1 : 0);
-
-  for (Router::ROUTES::const_iterator i = routes.begin(); i != routes.end(); i++)
-  {
-    const Router::sRoute& route = *i;
-
-    QString inMinStr;
-    TransformToString(route.dst.inMin, inMinStr);
-    QString inMaxStr;
-    TransformToString(route.dst.inMax, inMaxStr);
-    QString outMinStr;
-    TransformToString(route.dst.outMin, outMinStr);
-    QString outMaxStr;
-    TransformToString(route.dst.outMax, outMaxStr);
-
-    stream << FileUtils::QuotedString(route.label);
-    stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(route.src.addr.ip));
-    stream << QStringLiteral(",%1").arg(route.src.addr.port);
-    stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(route.src.path));
-    stream << QStringLiteral(",%1").arg(inMinStr);
-    stream << QStringLiteral(",%1").arg(inMaxStr);
-    stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(route.dst.addr.ip));
-    stream << QStringLiteral(",%1").arg(route.dst.addr.port);
-    stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(route.dst.path));
-    stream << QStringLiteral(",%1").arg(outMinStr);
-    stream << QStringLiteral(",%1").arg(outMaxStr);
-    stream << QStringLiteral(",%1").arg(route.dst.script ? FileUtils::QuotedString(route.dst.scriptText) : QString());
-    stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(route.src.multicastInterfaceIP));
-    stream << QStringLiteral(",%1").arg(static_cast<int>(route.src.protocol));
-    stream << QStringLiteral(",%1").arg(static_cast<int>(route.dst.protocol));
-    stream << QStringLiteral(",%1").arg(route.enable ? 1 : 0);
-    stream << QStringLiteral(",%1").arg(route.mute ? 0 : 1);
-    stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(route.dst.multicastInterfaceIP));
-    stream << QLatin1Char('\n');
-  }
+  ConfigFile::SaveRoutes(stream, routes, itemStateTable);
 }
 
 void RoutingWidget::SaveRoutes(Router::ROUTES& routes, ItemStateTable& itemStateTable)
@@ -2516,22 +2288,12 @@ void RoutingWidget::onHeaderHelpClicked(size_t id)
 
 void RoutingWidget::StringToTransform(const QString& str, EosRouteDst::sTransform& transform)
 {
-  if (str.isEmpty())
-  {
-    transform.enabled = false;
-    transform.value = 0;
-  }
-  else
-  {
-    transform.value = str.toFloat(&transform.enabled);
-    if (!transform.enabled)
-      transform.value = 0;
-  }
+  ConfigFile::StringToTransform(str, transform);
 }
 
 void RoutingWidget::TransformToString(const EosRouteDst::sTransform& transform, QString& str)
 {
-  str = (transform.enabled ? QString::number(transform.value) : QString());
+  ConfigFile::TransformToString(transform, str);
 }
 
 bool RoutingWidget::HasRoute(const Router::ROUTES& routes, const EosRouteSrc& src, const EosRouteDst& dst)
