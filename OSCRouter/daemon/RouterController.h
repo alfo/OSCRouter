@@ -62,7 +62,24 @@ public:
   // Recent log messages, replayed to a browser when it connects. Without this
   // the log pane would sit empty until the next message happened to arrive,
   // hiding whatever the engine said while starting up.
-  const std::deque<QJsonObject>& GetLogHistory() const { return m_LogHistory; }
+  //
+  // Each carries an id so a browser that loses the event stream and reconnects
+  // -- which Home Assistant's ingress causes routinely, by closing connections
+  // it considers idle -- is sent only what it missed rather than the whole
+  // history again.
+  struct LogEntry
+  {
+    quint64 id = 0;
+    QJsonObject message;
+  };
+
+  const std::deque<LogEntry>& GetLogHistory() const { return m_LogHistory; }
+
+  // Identifies this run of the process. The ids above start again from one
+  // whenever the daemon restarts, so without this a browser reconnecting to a
+  // restarted daemon would present a high id, be told it had missed nothing,
+  // and show an empty log.
+  const QByteArray& GetRunId() const { return m_RunId; }
 
   // Configuration file
   const QString& GetConfigPath() const { return m_ConfigPath; }
@@ -99,8 +116,9 @@ public:
   bool SetRouteEnabled(int routeIndex, bool enabled);
 
 signals:
-  // One drained log message, already shaped for the browser.
-  void logMessage(const QJsonObject& message);
+  // One drained log message, already shaped for the browser, with the id that
+  // identifies it in the history.
+  void logMessage(quint64 id, const QJsonObject& message);
   // Item states changed since the last tick.
   void itemStatesChanged();
   // The routing engine started or stopped.
@@ -135,7 +153,9 @@ private:
   QTimer* m_Timer = nullptr;
   EosLog m_Log;
   EosLog::LOG_Q m_TempLogQ;
-  std::deque<QJsonObject> m_LogHistory;
+  std::deque<LogEntry> m_LogHistory;
+  quint64 m_NextLogId = 1;
+  QByteArray m_RunId;
   bool m_EchoLogToStdout = true;
   bool m_EchoPacketsToStdout = false;
 

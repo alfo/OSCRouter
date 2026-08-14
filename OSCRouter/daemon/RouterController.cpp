@@ -102,6 +102,11 @@ RouterController::RouterController(const QString& configPath, unsigned int recon
   , m_ConfigPath(configPath)
   , m_ReconnectDelay(reconnectDelayMS)
 {
+  // Distinguishes this run from any earlier one, so a browser reconnecting
+  // across a restart is recognised as needing the whole log rather than the
+  // part of it that follows an id this process never issued.
+  m_RunId = QByteArray::number(QDateTime::currentMSecsSinceEpoch(), 36);
+
   m_Timer = new QTimer(this);
   connect(m_Timer, &QTimer::timeout, this, &RouterController::onTick);
   m_Timer->start(TICK_INTERVAL_MS);
@@ -342,11 +347,13 @@ void RouterController::Sync(bool logsOnly)
     const QJsonObject message{
       {"type", QString::fromLatin1(typeName)}, {"timestamp", static_cast<qint64>(i->timestamp)}, {"text", QString::fromUtf8(i->text.c_str())}};
 
-    m_LogHistory.push_back(message);
+    const quint64 id = m_NextLogId++;
+
+    m_LogHistory.push_back({id, message});
     while (m_LogHistory.size() > MAX_LOG_HISTORY)
       m_LogHistory.pop_front();
 
-    emit logMessage(message);
+    emit logMessage(id, message);
   }
 
   m_TempLogQ.clear();

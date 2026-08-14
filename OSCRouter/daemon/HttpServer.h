@@ -63,7 +63,7 @@ protected:
 private slots:
   void onReadyRead();
   void onDisconnected();
-  void onLogMessage(const QJsonObject& message);
+  void onLogMessage(quint64 id, const QJsonObject& message);
   void onItemStatesChanged();
   void onRunStateChanged();
 
@@ -95,9 +95,13 @@ private:
   void SendJson(QTcpSocket* socket, int status, const QJsonArray& array);
   void SendError(QTcpSocket* socket, int status, const QString& message);
 
-  void BeginEventStream(QTcpSocket* socket);
-  void SendEvent(QTcpSocket* socket, const QByteArray& name, const QByteArray& data);
+  // lastEventId is the browser's Last-Event-ID header, which it sends by
+  // itself when reconnecting a dropped stream.
+  void BeginEventStream(QTcpSocket* socket, const QByteArray& lastEventId);
+  void SendEvent(QTcpSocket* socket, const QByteArray& name, const QByteArray& data, const QByteArray& id = QByteArray());
   void BroadcastEvent(const QByteArray& name, const QJsonValue& data);
+  // "<run>-<n>", the value a browser sends back as Last-Event-ID.
+  QByteArray EventId(quint64 id) const;
 
   RouterController& m_Controller;
   QString m_AllowedPeer;

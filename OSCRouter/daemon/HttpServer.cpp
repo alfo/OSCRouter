@@ -249,7 +249,7 @@ bool HttpServer::HandleApiRequest(QTcpSocket* socket, const Request& request)
   // Live updates: log lines, item states and run state.
   if (path == QLatin1String("/api/events") && isGet)
   {
-    BeginEventStream(socket);
+    BeginEventStream(socket, request.headers.value("last-event-id"));
     return true;
   }
 
@@ -486,7 +486,7 @@ void HttpServer::SendError(QTcpSocket* socket, int status, const QString& messag
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void HttpServer::BeginEventStream(QTcpSocket* socket)
+void HttpServer::BeginEventStream(QTcpSocket* socket, const QByteArray& lastEventId)
 {
   QByteArray response;
   response.append("HTTP/1.1 200 OK\r\n");
@@ -505,21 +505,60 @@ void HttpServer::BeginEventStream(QTcpSocket* socket)
   SendEvent(socket, "status", QJsonDocument(m_Controller.StatusToJson()).toJson(QJsonDocument::Compact));
   SendEvent(socket, "itemStates", QJsonDocument(m_Controller.ItemStatesToJson()).toJson(QJsonDocument::Compact));
 
-  // Replay recent history, so the log pane is not empty on arrival and whatever
-  // the routing engine reported while starting up is still visible.
-  const std::deque<QJsonObject>& history = m_Controller.GetLogHistory();
-  for (std::deque<QJsonObject>::const_iterator i = history.begin(); i != history.end(); i++)
-    SendEvent(socket, "log", QJsonDocument(*i).toJson(QJsonDocument::Compact));
+  // Replay history, so the log pane is not empty on arrival and whatever the
+  // routing engine reported while starting up is still visible.
+  //
+  // Only the part the browser has not already seen. Ingress closes streams it
+  // considers idle and the browser silently reconnects, so replaying everything
+  // meant a log that filled with second and third copies of the same lines --
+  // most visibly when something was retrying in the background and there was a
+  // steady supply of lines to duplicate.
+  //
+  // Last-Event-ID is "<run>-<n>"; a run that is not this one belongs to an
+  // earlier process whose numbering says nothing about this one's history.
+  quint64 since = 0;
+  const int dash = lastEventId.lastIndexOf('-');
+  if (dash > 0 && lastEventId.left(dash) == m_Controller.GetRunId())
+  {
+    bool ok = false;
+    const quint64 n = lastEventId.mid(dash + 1).toULongLong(&ok);
+    if (ok)
+      since = n;
+  }
+
+  const std::deque<RouterController::LogEntry>& history = m_Controller.GetLogHistory();
+  for (std::deque<RouterController::LogEntry>::const_iterator i = history.begin(); i != history.end(); i++)
+  {
+    if (i->id <= since)
+      continue;
+
+    SendEvent(socket, "log", QJsonDocument(i->message).toJson(QJsonDocument::Compact), EventId(i->id));
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void HttpServer::SendEvent(QTcpSocket* socket, const QByteArray& name, const QByteArray& data)
+QByteArray HttpServer::EventId(quint64 id) const
+{
+  return m_Controller.GetRunId() + '-' + QByteArray::number(id);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void HttpServer::SendEvent(QTcpSocket* socket, const QByteArray& name, const QByteArray& data, const QByteArray& id /*= QByteArray()*/)
 {
   if (!socket || socket->state() != QAbstractSocket::ConnectedState)
     return;
 
   QByteArray event;
+  // Only the log carries an id. Status and item states are whole snapshots of
+  // the current state, so resending them on reconnect is what should happen.
+  if (!id.isEmpty())
+  {
+    event.append("id: ");
+    event.append(id);
+    event.append('\n');
+  }
   event.append("event: ");
   event.append(name);
   event.append("\ndata: ");
@@ -550,9 +589,17 @@ void HttpServer::BroadcastEvent(const QByteArray& name, const QJsonValue& data)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void HttpServer::onLogMessage(const QJsonObject& message)
+void HttpServer::onLogMessage(quint64 id, const QJsonObject& message)
 {
-  BroadcastEvent("log", message);
+  if (m_EventClients.isEmpty())
+    return;
+
+  const QByteArray payload = QJsonDocument(message).toJson(QJsonDocument::Compact);
+  const QByteArray eventId = EventId(id);
+
+  const QSet<QTcpSocket*> clients = m_EventClients;
+  for (QSet<QTcpSocket*>::const_iterator i = clients.begin(); i != clients.end(); i++)
+    SendEvent(*i, "log", payload, eventId);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

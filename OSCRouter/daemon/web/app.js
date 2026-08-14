@@ -616,6 +616,14 @@ function buildDragHandle(route) {
 // hand over at the point they visually overlap.
 function updateDropPosition() {
   var list = el('routeList');
+
+  // The card being dragged is held from pointerdown, but the list is rebuilt
+  // whenever anything else re-renders it -- a mute or enable request coming
+  // back mid-drag is enough. Re-inserting the card held here would then put a
+  // detached copy back into the list and show that route twice.
+  if (!drag.card || drag.card.parentNode !== list)
+    return;
+
   var cards = list.querySelectorAll('.route:not(.dragging)');
   var before = null;
 
