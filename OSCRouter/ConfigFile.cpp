@@ -23,7 +23,22 @@
 #include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
+#include <QtCore/QObject>
 #include <QtCore/QTextStream>
+
+namespace
+{
+// True for the records identified by a keyword in their first field, which the
+// count-based parsers have to step over.
+bool IsKeywordRecord(const QStringList& items)
+{
+  if (items.isEmpty())
+    return false;
+
+  return items[0].compare(QLatin1String("Settings"), Qt::CaseInsensitive) == 0 || items[0].compare(QLatin1String("Mute"), Qt::CaseInsensitive) == 0;
+}
+
+}  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -175,6 +190,27 @@ void ConfigFile::LoadRouteLine(const QString& line, Router::ROUTES& routes, Item
   if (items.isEmpty())
     return;
 
+  // The global mute record lives with the routes, so it is handled here.
+  if (items.size() == 3 && items[0].compare(QLatin1String("Mute"), Qt::CaseInsensitive) == 0)
+  {
+    // Deviation from upstream, which reads items[0] and items[1] here. items[0]
+    // is the "Mute" keyword, so it never parses as a number and "mute all
+    // incoming" could never be restored from a file, while "mute all outgoing"
+    // was restored from the incoming field. The record is written as
+    // "Mute,<incoming>,<outgoing>" by Save below, so these are the right fields.
+    itemStateTable.SetMuteAllIncoming(items[1].toInt() != 0);
+    itemStateTable.SetMuteAllOutgoing(items[2].toInt() != 0);
+    return;
+  }
+
+  // Records are otherwise told apart by field count, which is not enough on its
+  // own: a "Settings" line carrying the six OTP module flags is twelve fields,
+  // and a route is anything over ten. Without this it parses as a route as
+  // well, giving a phantom row that cannot run. The cost is that a route may
+  // not be labelled exactly "Settings" or "Mute".
+  if (IsKeywordRecord(items))
+    return;
+
   if (items.size() > 10)
   {
     Router::sRoute route;
@@ -218,16 +254,6 @@ void ConfigFile::LoadRouteLine(const QString& line, Router::ROUTES& routes, Item
 
     routes.push_back(route);
   }
-  else if (items.size() == 3 && items[0].compare(QLatin1String("Mute"), Qt::CaseInsensitive) == 0)
-  {
-    // Deviation from upstream, which reads items[0] and items[1] here. items[0]
-    // is the "Mute" keyword, so it never parses as a number and "mute all
-    // incoming" could never be restored from a file, while "mute all outgoing"
-    // was restored from the incoming field. The record is written as
-    // "Mute,<incoming>,<outgoing>" by Save below, so these are the right fields.
-    itemStateTable.SetMuteAllIncoming(items[1].toInt() != 0);
-    itemStateTable.SetMuteAllOutgoing(items[2].toInt() != 0);
-  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -236,6 +262,11 @@ void ConfigFile::LoadConnectionLine(const QString& line, Router::CONNECTIONS& co
 {
   QStringList items;
   FileUtils::GetItemsFromQuotedString(line, items);
+
+  // A "Settings" line with no OTP module flags is five fields, the same as a
+  // TCP connection record; see the comment in LoadRouteLine.
+  if (IsKeywordRecord(items))
+    return;
 
   if (items.size() == 5)
   {
@@ -268,29 +299,111 @@ QStringList ConfigFile::SplitLines(const QString& contents)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void ConfigFile::Validate(Contents& contents)
+namespace
 {
-  Router::ROUTES routes;
-  for (Router::ROUTES::const_iterator i = contents.routes.begin(); i != contents.routes.end(); i++)
+// Named for the user rather than for the wire: an sACN or Art-Net "port" is a
+// universe, and saying "port" about it helps nobody.
+QString PortNoun(Protocol protocol)
+{
+  switch (protocol)
   {
-    if (!ValidPort(i->src.protocol, i->src.addr.port))
-      continue;
+    case Protocol::ksACN:
+    case Protocol::kArtNet: return QStringLiteral("universe");
+    case Protocol::kOTP: return QStringLiteral("system number");
+    default: break;
+  }
+  return QStringLiteral("port");
+}
 
-    bool duplicate = false;
-    for (Router::ROUTES::const_iterator j = routes.begin(); j != routes.end(); j++)
+QString ProtocolName(Protocol protocol)
+{
+  switch (protocol)
+  {
+    case Protocol::kOSC: return QStringLiteral("OSC");
+    case Protocol::kPSN: return QStringLiteral("PSN");
+    case Protocol::ksACN: return QStringLiteral("sACN");
+    case Protocol::kArtNet: return QStringLiteral("Art-Net");
+    case Protocol::kMIDI: return QStringLiteral("MIDI");
+    case Protocol::kOTP: return QStringLiteral("OTP");
+    default: break;
+  }
+  return QStringLiteral("unknown");
+}
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+
+ConfigFile::ISSUES ConfigFile::Diagnose(const Contents& contents)
+{
+  ISSUES issues;
+
+  int runnable = 0;
+
+  for (size_t i = 0; i < contents.routes.size(); i++)
+  {
+    const Router::sRoute& route = contents.routes[i];
+    const int index = static_cast<int>(i);
+
+    // The engine drops a route whose incoming port is invalid for its protocol,
+    // and an sACN universe of 0 is the usual way to hit that: the field says
+    // "Port", so 0 looks like "unset" rather than "impossible".
+    if (!ValidPort(route.src.protocol, route.src.addr.port))
     {
-      if (j->src == i->src && j->dst == i->dst)
-      {
-        duplicate = true;
-        break;
-      }
+      issues.push_back({Issue::Level::kError, index,
+                        QObject::tr("Incoming %1 %2 is not valid for %3, so this route will not run.")
+                          .arg(PortNoun(route.src.protocol))
+                          .arg(route.src.addr.port)
+                          .arg(ProtocolName(route.src.protocol))});
+      continue;
     }
 
-    if (!duplicate)
-      routes.push_back(*i);
-  }
-  contents.routes.swap(routes);
+    if (!ValidPort(route.dst.protocol, route.dst.addr.port))
+    {
+      issues.push_back({Issue::Level::kError, index,
+                        QObject::tr("Outgoing %1 %2 is not valid for %3, so this route will not run.")
+                          .arg(PortNoun(route.dst.protocol))
+                          .arg(route.dst.addr.port)
+                          .arg(ProtocolName(route.dst.protocol))});
+      continue;
+    }
 
+    if (route.enable)
+      ++runnable;
+
+    // Bound to loopback, this only ever hears from the machine it runs on. It
+    // is a valid thing to want and an easy thing to do by accident, and from
+    // the sending end it is indistinguishable from a wrong port.
+    if (route.src.addr.ip == QLatin1String("127.0.0.1") || route.src.addr.ip.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0)
+    {
+      issues.push_back({Issue::Level::kWarning, index,
+                        QObject::tr("Incoming IP is %1, so this route only accepts traffic from this machine. "
+                                    "Leave it empty to listen on every network interface.")
+                          .arg(route.src.addr.ip)});
+    }
+  }
+
+  if (contents.routes.empty())
+    issues.push_back({Issue::Level::kWarning, -1, QObject::tr("No routes yet. Add one to start routing.")});
+  else if (runnable == 0)
+    issues.push_back({Issue::Level::kError, -1, QObject::tr("No route can run, so routing will not start.")});
+
+  return issues;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void ConfigFile::Validate(Contents& contents)
+{
+  // Routes are deliberately left alone, including ones the routing engine
+  // cannot use. A route with an invalid port is something a person typed and
+  // has not finished, and dropping it here would delete their work the next
+  // time the file was written: the engine filters what it can run in
+  // RouterController::PrepareForRouting, and Diagnose explains the difference.
+  //
+  // Connections are different. A "Settings" line has five fields and so also
+  // parses as a TCP connection record, and a real connection always has a port,
+  // so dropping port-less connections is what stops a settings line being
+  // written back out as "Settings,0,2,0,0" and corrupting the file.
   Router::CONNECTIONS connections;
   for (Router::CONNECTIONS::const_iterator i = contents.connections.begin(); i != contents.connections.end(); i++)
   {

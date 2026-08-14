@@ -77,15 +77,35 @@ public:
   static void LoadRouteLine(const QString& line, Router::ROUTES& routes, ItemStateTable& itemStateTable);
   static void LoadConnectionLine(const QString& line, Router::CONNECTIONS& connections);
 
-  // Discards records the routing engine could never use: routes and TCP
-  // connections whose port is invalid for their protocol, and exact duplicates.
-  //
-  // The desktop application gets this for free, because it loads a file into
-  // its widgets, reads them back, and loads the result again -- the read-back
-  // step drops anything invalid. Anything reading the file without that round
-  // trip has to filter explicitly, and must: a "Settings" line has five fields
-  // and would otherwise be mistaken for a TCP connection record, then written
-  // back out as one.
+  // Something about the configuration worth telling the user, found by
+  // Diagnose. A route can be perfectly well formed and still never carry
+  // anything, and the only sign of that is one line in the log, so these are
+  // surfaced in the interface instead.
+  struct Issue
+  {
+    enum class Level
+    {
+      kWarning,  // will run, but probably not as intended
+      kError,    // will not run at all
+    };
+
+    Level level = Level::kWarning;
+    int routeIndex = -1;  // -1 when it concerns the configuration as a whole
+    QString message;
+  };
+
+  typedef std::vector<Issue> ISSUES;
+
+  // Explains what the routing engine will refuse to run and why, plus the
+  // configurations that are valid but rarely what someone meant.
+  static ISSUES Diagnose(const Contents& contents);
+
+  // Discards records that are artefacts of parsing rather than anything a
+  // person wrote: a "Settings" line has five fields and so also parses as a TCP
+  // connection record, which would then be written back out as
+  // "Settings,0,2,0,0" and corrupt the file. Routes are left untouched even
+  // when the engine cannot use them, because deleting half-finished work is
+  // worse than carrying it; see the comment on the implementation.
   static void Validate(Contents& contents);
 
   // Whole-file helpers.

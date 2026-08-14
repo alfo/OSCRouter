@@ -83,6 +83,10 @@ public:
   bool ConfigFromJson(const QJsonObject& json, QString& error);
   QJsonObject StatusToJson() const;
   QJsonArray ItemStatesToJson() const;
+  // What the routing engine will refuse to run, and what is valid but probably
+  // unintended. Carried in the status so the interface can show it without
+  // asking separately.
+  QJsonArray IssuesToJson() const;
   static QJsonArray InterfacesToJson();
 
   // Live edits that do not require a restart. Muting is carried to the routing

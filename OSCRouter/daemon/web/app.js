@@ -12,6 +12,7 @@ var OTP_MODULES = ['Position', 'Position Velocity/Acceleration', 'Rotation', 'Ro
 
 var config = { routes: [], connections: [], settings: { otpModules: [] }, muteAllIncoming: false, muteAllOutgoing: false };
 var itemStates = [];
+var issues = [];
 
 // ------------------------------------------------------------------ helpers
 
@@ -159,6 +160,7 @@ function renderRoutes() {
   });
 
   applyItemStates();
+  markIssueRows();
 }
 
 function emptyRoute() {
@@ -258,6 +260,51 @@ function applyStatus(status) {
   el('runLabel').textContent = status.running ? 'Running' : 'Stopped';
   el('startBtn').disabled = status.running;
   el('stopBtn').disabled = !status.running;
+
+  if (status.version)
+    el('runLabel').title = 'OSCRouter ' + status.version;
+
+  applyIssues(status.issues || []);
+}
+
+// A route can be well formed and still never carry anything. Rather than
+// leaving that to one line in the log, say so above the table and mark the row.
+function applyIssues(list) {
+  issues = list;
+
+  var container = el('issues');
+  container.textContent = '';
+  container.hidden = issues.length === 0;
+
+  issues.forEach(function (issue) {
+    var row = document.createElement('div');
+    row.className = 'issue ' + issue.level;
+
+    var badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = issue.level;
+    row.appendChild(badge);
+
+    var text = document.createElement('span');
+    text.textContent = (issue.routeIndex >= 0 ? 'Route ' + (issue.routeIndex + 1) + ': ' : '') + issue.message;
+    row.appendChild(text);
+
+    container.appendChild(row);
+  });
+
+  markIssueRows();
+}
+
+// Kept separate because rendering the table replaces the rows, losing the marks.
+function markIssueRows() {
+  var rows = el('routesBody').children;
+  Array.prototype.forEach.call(rows, function (tr) {
+    tr.classList.remove('has-error', 'has-warning');
+  });
+  issues.forEach(function (issue) {
+    var tr = rows[issue.routeIndex];
+    if (tr) tr.classList.add(issue.level === 'error' ? 'has-error' : 'has-warning');
+  });
 }
 
 var MAX_LOG_LINES = 500;

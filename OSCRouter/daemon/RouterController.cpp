@@ -20,12 +20,16 @@
 
 #include "RouterController.h"
 
+#include "Version.h"
+
 #include <map>
 #include <unordered_set>
 
 #include <stdio.h>
 
+#include <QtCore/QDir>
 #include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 #include <QtCore/QJsonValue>
 #include <QtCore/QTextStream>
 #include <QtCore/QTimer>
@@ -154,10 +158,29 @@ QString RouterController::GetConfigFileText() const
 
 bool RouterController::SetConfigFileText(const QString& text, QString& error)
 {
+  // Written through verbatim rather than parsed and re-serialised. Someone
+  // editing the file directly expects to get back what they typed, and
+  // round-tripping it would quietly rewrite anything the parser normalises --
+  // or drop it outright.
+  QDir().mkpath(QFileInfo(m_ConfigPath).absolutePath());
+
+  QFile file(m_ConfigPath);
+  if (!file.open(QFile::WriteOnly | QFile::Truncate))
+  {
+    error = tr("unable to write \"%1\"").arg(m_ConfigPath);
+    return false;
+  }
+
+  QTextStream stream(&file);
+  stream.setEncoding(QStringConverter::Utf8);
+  stream << text;
+  stream.flush();
+  file.close();
+
   ConfigFile::Contents contents;
   ConfigFile::LoadLines(ConfigFile::SplitLines(text), contents);
   m_Contents = contents;
-  return SaveConfigFile(error);
+  return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -530,11 +553,32 @@ bool RouterController::ConfigFromJson(const QJsonObject& json, QString& error)
 QJsonObject RouterController::StatusToJson() const
 {
   return QJsonObject{{"running", IsRunning()},
+                     // Reported so a running instance can be identified without
+                     // having to guess from the shape of the interface.
+                     {"version", QStringLiteral("%1.%2.%3").arg(OSCROUTER_VERSION_MAJOR).arg(OSCROUTER_VERSION_MINOR).arg(OSCROUTER_VERSION_PATCH)},
                      {"configPath", m_ConfigPath},
                      {"routeCount", static_cast<int>(m_Contents.routes.size())},
                      {"connectionCount", static_cast<int>(m_Contents.connections.size())},
                      {"muteAllIncoming", m_ItemStateTable.GetMuteAllIncoming()},
-                     {"muteAllOutgoing", m_ItemStateTable.GetMuteAllOutgoing()}};
+                     {"muteAllOutgoing", m_ItemStateTable.GetMuteAllOutgoing()},
+                     {"issues", IssuesToJson()}};
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+QJsonArray RouterController::IssuesToJson() const
+{
+  QJsonArray result;
+
+  const ConfigFile::ISSUES issues = ConfigFile::Diagnose(m_Contents);
+  for (ConfigFile::ISSUES::const_iterator i = issues.begin(); i != issues.end(); i++)
+  {
+    result.append(QJsonObject{{"level", QString::fromLatin1(i->level == ConfigFile::Issue::Level::kError ? "error" : "warning")},
+                              {"routeIndex", i->routeIndex},
+                              {"message", i->message}});
+  }
+
+  return result;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -137,6 +137,41 @@ main {
 
 .hint { color: var(--muted); margin-top: 0; }
 
+/* ----------------------------------------------------------------- issues */
+
+.issues {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.issue {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 3px;
+  border: 1px solid;
+  background: var(--dark-bg);
+}
+
+.issue.error { border-color: var(--error); }
+.issue.warning { border-color: var(--warning); }
+
+.issue .badge {
+  flex: none;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.issue.error .badge { color: var(--error); }
+.issue.warning .badge { color: var(--warning); }
+
+/* Rows the messages point at, so the table and the banner agree. */
+tr.has-error td { box-shadow: inset 2px 0 0 var(--error); }
+tr.has-warning td { box-shadow: inset 2px 0 0 var(--warning); }
+
 /* Wide tables scroll inside their own container rather than the page. */
 .table-scroll {
   overflow-x: auto;
