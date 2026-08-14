@@ -54,6 +54,15 @@ body {
   color: var(--highlight);
 }
 
+/* The logo is decorative; the adjacent heading carries the name. */
+.topbar .logo {
+  display: block;
+  border-radius: 4px;
+  flex: none;
+  /* Cancels the gap the flex row would otherwise put between it and the title. */
+  margin-right: -6px;
+}
+
 .spacer { flex: 1 1 auto; }
 
 .status { display: flex; align-items: center; gap: 6px; color: var(--muted); }

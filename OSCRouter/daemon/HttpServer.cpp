@@ -59,6 +59,7 @@ QByteArray ContentTypeForPath(const QString& path)
   if (path.endsWith(QLatin1String(".js"))) return "application/javascript; charset=utf-8";
   if (path.endsWith(QLatin1String(".css"))) return "text/css; charset=utf-8";
   if (path.endsWith(QLatin1String(".svg"))) return "image/svg+xml";
+  if (path.endsWith(QLatin1String(".png"))) return "image/png";
   if (path.endsWith(QLatin1String(".json"))) return "application/json; charset=utf-8";
   return "application/octet-stream";
 }

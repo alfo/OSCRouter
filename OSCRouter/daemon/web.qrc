@@ -4,5 +4,6 @@
     <file alias="index.html">web/index.html</file>
     <file alias="app.css">web/app.css</file>
     <file alias="app.js">web/app.js</file>
+    <file alias="logo.png">web/logo.png</file>
   </qresource>
 </RCC>
