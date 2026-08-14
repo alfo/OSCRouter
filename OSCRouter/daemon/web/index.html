@@ -24,54 +24,67 @@
   <label class="mute-all"><input type="checkbox" id="muteAllOutgoing"> Mute outgoing</label>
   <button id="startBtn" class="btn">Start</button>
   <button id="stopBtn" class="btn">Stop</button>
-  <button id="applyBtn" class="btn primary">Save &amp; Apply</button>
 </header>
 
 <nav class="tabs">
-  <button class="tab active" data-panel="routing">Routing</button>
+  <button class="tab active" data-panel="routes">Routes</button>
   <button class="tab" data-panel="tcp">TCP Connections</button>
   <button class="tab" data-panel="settings">Settings</button>
   <button class="tab" data-panel="file">File</button>
 </nav>
+
+<!-- Edits only reach the routing engine when they are saved, and nothing else
+     on the page says so. This bar is the whole answer to "why is my change not
+     doing anything". -->
+<div id="dirtyBar" class="dirtybar" hidden>
+  <span class="dirty-text">
+    <strong>Unsaved changes.</strong>
+    The router is still running the last saved configuration.
+  </span>
+  <div class="spacer"></div>
+  <button id="discardBtn" class="btn small">Discard</button>
+  <button id="applyBtn" class="btn small primary">Save &amp; Apply</button>
+</div>
 
 <main>
   <!-- Populated from the status: what will not run, and what is valid but
        probably not what was meant. -->
   <div id="issues" class="issues" hidden></div>
 
-  <section id="panel-routing" class="panel active">
-    <div class="table-scroll">
-      <table id="routesTable">
-        <thead>
-          <tr>
-            <th class="col-narrow" title="Enable this route">On</th>
-            <th class="col-narrow" title="Mute the destination">Mute</th>
-            <th>Label</th>
-            <th class="group-start" colspan="2">Incoming</th>
-            <th>IP</th>
-            <th>Port</th>
-            <th>Path</th>
-            <th>Protocol</th>
-            <th>Min</th>
-            <th>Max</th>
-            <th class="group-start" colspan="2">Outgoing</th>
-            <th>IP</th>
-            <th>Port</th>
-            <th>Path</th>
-            <th>Protocol</th>
-            <th>Min</th>
-            <th>Max</th>
-            <th>Script</th>
-            <th class="col-narrow"></th>
-          </tr>
-        </thead>
-        <tbody id="routesBody"></tbody>
-      </table>
+  <section id="panel-routes" class="panel active">
+    <div class="toolbar">
+      <input type="search" id="routeSearch" class="search" placeholder="Search routes…" spellcheck="false">
+      <span id="routeCount" class="count"></span>
+      <div class="spacer"></div>
+      <button id="expandAll" class="btn small">Expand all</button>
+      <button id="addRoute" class="btn small primary">Add route</button>
     </div>
-    <button id="addRoute" class="btn">Add route</button>
+
+    <div id="routeList" class="routes"></div>
+
+    <!-- First run, and after deleting the last route. An empty list with an
+         "Add route" button teaches nothing about what a route is. -->
+    <div id="routesEmpty" class="empty" hidden>
+      <h2>No routes yet</h2>
+      <p>
+        A route takes packets arriving on one protocol and address, and sends
+        them out on another. Start from one of these, or add an empty route and
+        fill it in.
+      </p>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div id="routesNoMatch" class="empty" hidden>
+      <p>No routes match that search.</p>
+    </div>
   </section>
 
   <section id="panel-tcp" class="panel">
+    <p class="hint">
+      OSC normally travels over UDP. A connection here makes OSC routes that use
+      the same IP and port travel over TCP instead — routes that do are marked
+      <span class="chip tcp">TCP</span>.
+    </p>
     <div class="table-scroll">
       <table id="tcpTable">
         <thead>
@@ -87,42 +100,73 @@
         <tbody id="tcpBody"></tbody>
       </table>
     </div>
-    <button id="addTcp" class="btn">Add connection</button>
+    <button id="addTcp" class="btn small">Add connection</button>
   </section>
 
   <section id="panel-settings" class="panel">
     <div class="settings-grid">
       <label for="sACNIP">sACN interface</label>
-      <input list="interfaces" id="sACNIP" placeholder="default">
+      <div>
+        <input list="interfaces" id="sACNIP" placeholder="default (all interfaces)">
+        <p class="field-hint">Which network interface sACN is sent and received on.</p>
+      </div>
 
       <label for="artNetIP">Art-Net interface</label>
-      <input list="interfaces" id="artNetIP" placeholder="default">
+      <div>
+        <input list="interfaces" id="artNetIP" placeholder="default (first interface)">
+        <p class="field-hint">Which network interface Art-Net is sent and received on.</p>
+      </div>
 
       <label for="otpIP">OTP interface</label>
-      <input list="interfaces" id="otpIP" placeholder="default">
+      <div>
+        <input list="interfaces" id="otpIP" placeholder="default (all interfaces)">
+        <p class="field-hint">Which network interface OTP is sent and received on.</p>
+      </div>
 
       <label for="levelChangesOnly">Level changes only</label>
-      <input type="checkbox" id="levelChangesOnly">
+      <div>
+        <label class="inline"><input type="checkbox" id="levelChangesOnly"> Ignore repeats</label>
+        <p class="field-hint">
+          sACN and Art-Net resend the whole universe continuously. With this on,
+          a route only fires when a level actually changes.
+        </p>
+      </div>
 
-      <label>OTP modules</label>
-      <div id="otpModules" class="checkbox-row"></div>
+      <label>Incoming OTP modules</label>
+      <div>
+        <div id="otpModules" class="checkbox-row"></div>
+        <p class="field-hint">Which kinds of OTP data to accept.</p>
+      </div>
 
-      <label for="globalScript">Global script</label>
-      <textarea id="globalScript" rows="8" spellcheck="false"></textarea>
+      <label for="globalScript">JavaScript globals</label>
+      <div>
+        <textarea id="globalScript" rows="8" spellcheck="false"></textarea>
+        <p class="field-hint">
+          Declared once and shared by every route script. For example
+          <code>var gPacketCounter = 0;</code>
+        </p>
+      </div>
     </div>
     <datalist id="interfaces"></datalist>
   </section>
 
   <section id="panel-file" class="panel">
-    <p class="hint">The routing configuration exactly as stored on disk. Saving here replaces the whole configuration.</p>
+    <p class="hint">
+      The routing configuration exactly as stored on disk, in the same format
+      the OSCRouter desktop application reads. Saving here replaces the whole
+      configuration.
+    </p>
     <textarea id="rawFile" spellcheck="false"></textarea>
-    <button id="saveFile" class="btn">Save file</button>
+    <div class="toolbar">
+      <button id="saveFile" class="btn small">Save file</button>
+      <span class="field-hint">Route notes are the one thing the desktop application does not keep.</span>
+    </div>
   </section>
 </main>
 
-<section class="log">
+<section class="log" id="logPane">
   <div class="log-header">
-    <span>Log</span>
+    <button id="logToggle" class="log-toggle" title="Collapse the log">Log</button>
     <div class="spacer"></div>
     <label><input type="checkbox" id="autoScroll" checked> Follow</label>
     <button id="clearLog" class="btn small">Clear</button>

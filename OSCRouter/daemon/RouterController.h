@@ -27,6 +27,7 @@
 #endif
 
 #include <deque>
+#include <unordered_map>
 
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonObject>
@@ -118,6 +119,14 @@ private:
 
   void Sync(bool logsOnly);
 
+  // ItemState::activity is a momentary flag, set when a packet passes and
+  // cleared by ItemStateTable::Reset on the next tick. A browser therefore only
+  // learns that a route is carrying traffic if it happens to be watching at
+  // that instant, which makes a route that died an hour ago indistinguishable
+  // from one that never ran. Remembering when each endpoint was last active
+  // turns that into something the interface can state outright.
+  void StampActivity();
+
   QString m_ConfigPath;
   unsigned int m_ReconnectDelay = 5000;
   ConfigFile::Contents m_Contents;
@@ -139,6 +148,10 @@ private:
     ItemStateTable::ID dst = ItemStateTable::sm_Invalid_Id;
   };
   std::vector<RouteStateIds> m_RouteStateIds;
+
+  // Seconds since the epoch, keyed by item state table id. Cleared whenever the
+  // engine restarts, since the ids are handed out afresh each time.
+  std::unordered_map<ItemStateTable::ID, qint64> m_LastActivity;
 };
 
 ////////////////////////////////////////////////////////////////////////////////

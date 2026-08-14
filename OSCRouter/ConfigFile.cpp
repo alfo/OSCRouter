@@ -252,6 +252,12 @@ void ConfigFile::LoadRouteLine(const QString& line, Router::ROUTES& routes, Item
     if (items.size() > 17)
       route.dst.multicastInterfaceIP = items[17];
 
+    // Not in upstream's format. Upstream stops reading at index 17 and ignores
+    // anything after it, so a file carrying notes still loads there correctly;
+    // it is only lost if the desktop application saves the file back out.
+    if (items.size() > 18)
+      route.notes = items[18];
+
     routes.push_back(route);
   }
 }
@@ -511,6 +517,7 @@ void ConfigFile::SaveRoutes(QTextStream& stream, const Router::ROUTES& routes, c
     stream << QStringLiteral(",%1").arg(route.enable ? 1 : 0);
     stream << QStringLiteral(",%1").arg(route.mute ? 0 : 1);
     stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(route.dst.multicastInterfaceIP));
+    stream << QStringLiteral(",%1").arg(FileUtils::QuotedString(route.notes));
     stream << QLatin1Char('\n');
   }
 }

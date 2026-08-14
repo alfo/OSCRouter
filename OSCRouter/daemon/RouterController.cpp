@@ -27,6 +27,7 @@
 
 #include <stdio.h>
 
+#include <QtCore/QDateTime>
 #include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
@@ -275,6 +276,9 @@ void RouterController::Start()
 
   Router::ROUTES routes;
   Router::CONNECTIONS connections;
+  // PrepareForRouting hands out item state table ids afresh, so anything
+  // remembered against the previous set no longer refers to the same endpoint.
+  m_LastActivity.clear();
   PrepareForRouting(routes, connections);
 
   if (routes.empty())
@@ -351,9 +355,28 @@ void RouterController::Sync(bool logsOnly)
   {
     if (m_ItemStateTable.GetDirty())
     {
+      StampActivity();
       emit itemStatesChanged();
       m_ItemStateTable.Reset();
     }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void RouterController::StampActivity()
+{
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+  for (std::vector<RouteStateIds>::const_iterator i = m_RouteStateIds.begin(); i != m_RouteStateIds.end(); i++)
+  {
+    const ItemState* src = m_ItemStateTable.GetItemState(i->src);
+    if (src && src->activity)
+      m_LastActivity[i->src] = now;
+
+    const ItemState* dst = m_ItemStateTable.GetItemState(i->dst);
+    if (dst && dst->activity)
+      m_LastActivity[i->dst] = now;
   }
 }
 
@@ -415,6 +438,7 @@ QJsonObject RouterController::ConfigToJson() const
     routes.append(QJsonObject{
       {"index", static_cast<int>(i)},
       {"label", route.label},
+      {"notes", route.notes},
       {"enable", route.enable},
       {"mute", route.mute},
       {"src", QJsonObject{{"ip", route.src.addr.ip},
@@ -480,6 +504,7 @@ bool RouterController::ConfigFromJson(const QJsonObject& json, QString& error)
 
     Router::sRoute route;
     route.label = obj.value("label").toString();
+    route.notes = obj.value("notes").toString();
     route.enable = obj.value("enable").toBool(true);
     route.mute = obj.value("mute").toBool(false);
 
@@ -599,6 +624,10 @@ QJsonArray RouterController::ItemStatesToJson() const
     {
       entry["srcState"] = QString::fromLatin1(StateName(src->state));
       entry["srcActivity"] = src->activity;
+
+      std::unordered_map<ItemStateTable::ID, qint64>::const_iterator seen = m_LastActivity.find(m_RouteStateIds[i].src);
+      if (seen != m_LastActivity.end())
+        entry["srcLastActivity"] = seen->second;
     }
 
     if (dst)
@@ -606,6 +635,10 @@ QJsonArray RouterController::ItemStatesToJson() const
       entry["dstState"] = QString::fromLatin1(StateName(dst->state));
       entry["dstActivity"] = dst->activity;
       entry["dstMute"] = dst->mute;
+
+      std::unordered_map<ItemStateTable::ID, qint64>::const_iterator seen = m_LastActivity.find(m_RouteStateIds[i].dst);
+      if (seen != m_LastActivity.end())
+        entry["dstLastActivity"] = seen->second;
     }
 
     states.append(entry);

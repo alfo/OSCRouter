@@ -46,8 +46,14 @@ class QTextStream;
 //   Mute,<muteAllIncoming>,<muteAllOutgoing>
 //   <label>,<srcIP>,<srcPort>,<srcPath>,<inMin>,<inMax>,
 //     <dstIP>,<dstPort>,<dstPath>,<outMin>,<outMax>[,<script>,<srcMulticastIP>,
-//     <srcProtocol>,<dstProtocol>,<enabled>,<unmuted>,<dstMulticastIP>]  (route)
+//     <srcProtocol>,<dstProtocol>,<enabled>,<unmuted>,<dstMulticastIP>,
+//     <notes>]                                                          (route)
 //   <label>,<isServer>,<frameMode>,<ip>,<port>                          (TCP connection)
+//
+// <notes> is the one field upstream does not write. The format has always been
+// extended at the tail and every reader stops at the last field it knows about,
+// so upstream loads these files unchanged and simply drops the notes if it
+// saves one back out.
 //
 // Every parser ignores lines it does not recognise, because the original format
 // is read in one pass per section over the same set of lines.

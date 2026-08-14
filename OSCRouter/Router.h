@@ -161,6 +161,10 @@ public:
     bool enable = true;
     bool mute = false;
     QString label;
+    // Free text explaining why this route exists, for whoever opens the
+    // configuration months later. Carried through the file and the web
+    // interface; the routing engine never reads it.
+    QString notes;
     EosRouteSrc src;
     ItemStateTable::ID srcItemStateTableId = ItemStateTable::sm_Invalid_Id;
     EosRouteDst dst;
