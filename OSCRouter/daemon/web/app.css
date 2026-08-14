@@ -54,13 +54,18 @@ body {
   color: var(--highlight);
 }
 
-/* The logo is decorative; the adjacent heading carries the name. */
+/* Kept together so the icon never wraps away from the name it belongs to. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Decorative; the adjacent heading carries the name. */
 .topbar .logo {
   display: block;
   border-radius: 4px;
   flex: none;
-  /* Cancels the gap the flex row would otherwise put between it and the title. */
-  margin-right: -6px;
 }
 
 .spacer { flex: 1 1 auto; }
@@ -284,5 +289,5 @@ textarea {
 
 @media (max-width: 720px) {
   .settings-grid { grid-template-columns: 1fr; }
-  .topbar h1 { width: 100%; }
+  .brand { width: 100%; }
 }
