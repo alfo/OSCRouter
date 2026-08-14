@@ -243,6 +243,16 @@ main {
 
 .routes { display: flex; flex-direction: column; gap: 6px; }
 
+/* Text selection during a drag is never wanted, and on touch it fights the
+   gesture outright. */
+.routes.reordering { user-select: none; }
+
+.route.dragging {
+  opacity: 0.9;
+  border-color: var(--highlight);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+}
+
 .route {
   background: var(--card);
   border: 1px solid var(--border);
@@ -257,12 +267,31 @@ main {
 
 .route-head {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto;
   align-items: center;
   gap: 8px 10px;
   padding: 8px 10px;
   cursor: pointer;
 }
+
+.drag-handle {
+  background: none;
+  border: none;
+  /* Grid stretches items to their column; this keeps the grip its own size. */
+  justify-self: start;
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 1px;
+  cursor: grab;
+  border-radius: 2px;
+  /* Or the browser treats a touch drag as a scroll and the reorder never starts. */
+  touch-action: none;
+}
+.drag-handle:hover:not(:disabled) { color: var(--text); }
+.drag-handle:focus-visible { outline: 1px solid var(--highlight); color: var(--text); }
+.drag-handle:disabled { opacity: 0.3; cursor: default; }
+.route.dragging .drag-handle { cursor: grabbing; }
 
 .route-name {
   font-weight: 600;
@@ -281,7 +310,7 @@ main {
 /* The summary sentence: what comes in, what goes out. Spans the full width
    under the name so it reads left to right without competing for space. */
 .route-flow {
-  grid-column: 2 / -1;
+  grid-column: 3 / -1;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -302,7 +331,7 @@ main {
 .arrow { color: var(--dim); flex: none; }
 
 .route-note {
-  grid-column: 2 / -1;
+  grid-column: 3 / -1;
   margin: 0;
   color: var(--muted);
   max-width: 80ch;
@@ -649,7 +678,9 @@ textarea {
 @media (max-width: 720px) {
   .settings-grid { grid-template-columns: 1fr; }
   .brand { width: 100%; }
-  .route-head { grid-template-columns: auto 1fr; }
-  .route-actions { grid-row: 1; grid-column: 2; justify-self: end; }
+  /* Handle, tick and name keep the first row; everything else gets its own,
+     rather than the name being pushed below the controls that describe it. */
+  .route-head { grid-template-columns: auto auto 1fr; }
+  .route-actions { grid-column: 1 / -1; justify-self: end; }
   .route-flow, .route-note { grid-column: 1 / -1; }
 }

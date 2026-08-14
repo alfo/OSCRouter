@@ -397,6 +397,8 @@ function buildHead(route) {
     toggleRoute(route);
   });
 
+  head.appendChild(buildDragHandle(route));
+
   var toggle = make('label', 'no-toggle');
   toggle.title = route.enable ? 'Enabled — click to disable' : 'Disabled — click to enable';
   toggle.appendChild(makeCheckbox(route.enable, function (value) {
@@ -513,6 +515,172 @@ function paintActivityChip(chip, route) {
     chip.textContent = relativeTime(seen);
   }
   chip.title = 'Last carried traffic ' + relativeTime(seen) + '.';
+}
+
+// ------------------------------------------------------------- reordering
+
+// Order carries no meaning to the routing engine, which matches on addresses
+// rather than position, so this is purely for arranging a configuration the way
+// the person who has to read it thinks about it.
+//
+// Built on pointer events rather than HTML5 drag and drop, which does not exist
+// on touch devices — and this is opened from a phone as often as a desktop. A
+// handle rather than the whole card, so dragging never competes with the click
+// that opens a route for editing.
+var drag = null;
+
+function buildDragHandle(route) {
+  var handle = make('button', 'drag-handle no-toggle', '⠿');
+  handle.setAttribute('aria-label', 'Reorder this route');
+
+  var filtering = filterText.trim().length > 0;
+  if (filtering) {
+    handle.disabled = true;
+    handle.title = 'Clear the search to reorder routes';
+    return handle;
+  }
+
+  handle.title = 'Drag to reorder, or use the arrow keys';
+
+  handle.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    e.preventDefault();
+
+    drag = {
+      card: cardsByUid[route._uid],
+      uid: route._uid,
+      startY: e.clientY,
+      pointerY: e.clientY,
+      moved: false,
+      raf: 0
+    };
+    // Keeps the events coming to the handle even once the pointer has left it,
+    // which it does immediately. Not fatal if the browser refuses.
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch (err) { /* the drag still works while the pointer stays over it */ }
+  });
+
+  handle.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    drag.pointerY = e.clientY;
+
+    // A small threshold, so a plain tap on the handle is not a reorder.
+    if (!drag.moved) {
+      if (Math.abs(e.clientY - drag.startY) < 4) return;
+      drag.moved = true;
+      drag.card.classList.add('dragging');
+      el('routeList').classList.add('reordering');
+      startAutoScroll();
+    }
+
+    updateDropPosition();
+  });
+
+  function finish() {
+    if (!drag) return;
+    if (drag.raf) cancelAnimationFrame(drag.raf);
+
+    var uid = drag.uid;
+    var moved = drag.moved;
+    if (drag.card) drag.card.classList.remove('dragging');
+    el('routeList').classList.remove('reordering');
+    drag = null;
+
+    if (!moved) return;
+
+    if (commitOrderFromDom()) {
+      markDirty();
+      renderRoutes();
+    }
+    focusHandle(uid);
+  }
+
+  handle.addEventListener('pointerup', finish);
+  handle.addEventListener('pointercancel', finish);
+
+  // The same reordering without a pointer at all.
+  handle.addEventListener('keydown', function (e) {
+    var delta = e.key === 'ArrowUp' ? -1 : (e.key === 'ArrowDown' ? 1 : 0);
+    if (!delta) return;
+    e.preventDefault();
+    moveRoute(routeIndex(route), delta);
+    focusHandle(route._uid);
+  });
+
+  return handle;
+}
+
+// Which card the pointer is currently above, by midpoint, so cards of different
+// heights — an opened editor is many times the height of a closed one — still
+// hand over at the point they visually overlap.
+function updateDropPosition() {
+  var list = el('routeList');
+  var cards = list.querySelectorAll('.route:not(.dragging)');
+  var before = null;
+
+  for (var i = 0; i < cards.length; i++) {
+    var box = cards[i].getBoundingClientRect();
+    if (drag.pointerY < box.top + box.height / 2) {
+      before = cards[i];
+      break;
+    }
+  }
+
+  if (before) list.insertBefore(drag.card, before);
+  else list.appendChild(drag.card);
+}
+
+// Dragging towards a route that is off screen has to bring it into view, and
+// pointermove stops firing once the pointer is held still at the edge.
+function startAutoScroll() {
+  var main = document.querySelector('main');
+
+  function step() {
+    if (!drag || !drag.moved) return;
+
+    var box = main.getBoundingClientRect();
+    var edge = 48;
+    var before = main.scrollTop;
+
+    if (drag.pointerY < box.top + edge)
+      main.scrollTop -= Math.max(2, (box.top + edge - drag.pointerY) / 4);
+    else if (drag.pointerY > box.bottom - edge)
+      main.scrollTop += Math.max(2, (drag.pointerY - (box.bottom - edge)) / 4);
+
+    if (main.scrollTop !== before) updateDropPosition();
+
+    drag.raf = requestAnimationFrame(step);
+  }
+
+  drag.raf = requestAnimationFrame(step);
+}
+
+// The cards are the source of truth once they have been dragged about; this
+// puts the configuration back in step with them.
+function commitOrderFromDom() {
+  var byUid = {};
+  config.routes.forEach(function (route) { byUid[route._uid] = route; });
+
+  var ordered = [];
+  Array.prototype.forEach.call(el('routeList').querySelectorAll('.route'), function (card) {
+    var route = byUid[card.dataset.uid];
+    if (route) ordered.push(route);
+  });
+
+  // Only ever reorder a list that is all present. Dragging is disabled while a
+  // search is active precisely so this holds.
+  if (ordered.length !== config.routes.length) return false;
+
+  config.routes = ordered;
+  return true;
+}
+
+function focusHandle(uid) {
+  var card = cardsByUid[uid];
+  if (!card) return;
+  var handle = card.querySelector('.drag-handle');
+  if (handle) handle.focus();
 }
 
 function buildMenu(route) {
