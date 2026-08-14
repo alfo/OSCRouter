@@ -28,6 +28,7 @@
 
 <nav class="tabs">
   <button class="tab active" data-panel="routes">Routes</button>
+  <button class="tab" data-panel="variables">Variables</button>
   <button class="tab" data-panel="tcp">TCP Connections</button>
   <button class="tab" data-panel="settings">Settings</button>
   <button class="tab" data-panel="file">File</button>
@@ -76,6 +77,38 @@
 
     <div id="routesNoMatch" class="empty" hidden>
       <p>No routes match that search.</p>
+    </div>
+  </section>
+
+  <section id="panel-variables" class="panel">
+    <p class="hint">
+      A named address, used in place of an IP anywhere in a route or a TCP
+      connection by writing <code>$name</code>. Change it here and every route
+      using it follows, rather than editing each one and getting all of them
+      right. Renaming updates the routes that refer to it.
+    </p>
+    <div class="table-scroll">
+      <table id="variablesTable">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Address</th>
+            <th>Used by</th>
+            <th class="col-narrow"></th>
+          </tr>
+        </thead>
+        <tbody id="variablesBody"></tbody>
+      </table>
+    </div>
+    <button id="addVariable" class="btn small">Add variable</button>
+
+    <div id="variablesEmpty" class="empty" hidden>
+      <h2>No variables yet</h2>
+      <p>
+        If the same console, media server or lighting desk appears in several
+        routes, name its address once here and refer to it as
+        <code>$name</code>. Moving that device later is then one edit.
+      </p>
     </div>
   </section>
 
@@ -149,6 +182,9 @@
     </div>
     <datalist id="interfaces"></datalist>
   </section>
+
+  <!-- Offered in every field that takes an address. -->
+  <datalist id="variables"></datalist>
 
   <section id="panel-file" class="panel">
     <p class="hint">

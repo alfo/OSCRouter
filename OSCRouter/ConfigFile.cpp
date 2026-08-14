@@ -24,6 +24,7 @@
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
 #include <QtCore/QObject>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QTextStream>
 
 namespace
@@ -35,7 +36,17 @@ bool IsKeywordRecord(const QStringList& items)
   if (items.isEmpty())
     return false;
 
-  return items[0].compare(QLatin1String("Settings"), Qt::CaseInsensitive) == 0 || items[0].compare(QLatin1String("Mute"), Qt::CaseInsensitive) == 0;
+  return items[0].compare(QLatin1String("Settings"), Qt::CaseInsensitive) == 0 || items[0].compare(QLatin1String("Mute"), Qt::CaseInsensitive) == 0 ||
+         items[0].compare(QLatin1String("Variable"), Qt::CaseInsensitive) == 0;
+}
+
+// "$name", where a name is letters, digits, underscores and hyphens. Anchored
+// on the dollar so an address can be built from a variable and a literal, as in
+// "$console" alone or a group written out in full.
+const QRegularExpression& VariableReferencePattern()
+{
+  static const QRegularExpression pattern(QStringLiteral("\\$([A-Za-z0-9_-]+)"));
+  return pattern;
 }
 
 }  // namespace
@@ -179,6 +190,76 @@ void ConfigFile::LoadSettingsLine(const QString& line, Router::Settings& setting
       }
     }
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void ConfigFile::LoadVariableLine(const QString& line, VARIABLES& variables)
+{
+  QStringList items;
+  FileUtils::GetItemsFromQuotedString(line, items);
+
+  if (items.size() == 3 && items[0].compare(QLatin1String("Variable"), Qt::CaseInsensitive) == 0)
+    variables.push_back({items[1], items[2]});
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+QStringList ConfigFile::VariableReferences(const QString& text)
+{
+  QStringList names;
+
+  QRegularExpressionMatchIterator i = VariableReferencePattern().globalMatch(text);
+  while (i.hasNext())
+    names.append(i.next().captured(1));
+
+  return names;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+bool ConfigFile::HasVariableReference(const QString& text)
+{
+  return text.contains(VariableReferencePattern());
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+QString ConfigFile::Resolve(const QString& text, const VARIABLES& variables)
+{
+  if (!HasVariableReference(text))
+    return text;
+
+  QString result;
+  qsizetype at = 0;
+
+  // Built in one pass over the input rather than by replacing each variable in
+  // turn, so a value that itself looks like a reference is never rescanned.
+  QRegularExpressionMatchIterator i = VariableReferencePattern().globalMatch(text);
+  while (i.hasNext())
+  {
+    const QRegularExpressionMatch match = i.next();
+    const QString name = match.captured(1);
+
+    QString value;
+    bool found = false;
+    for (VARIABLES::const_iterator v = variables.begin(); v != variables.end(); v++)
+    {
+      if (v->name.compare(name, Qt::CaseInsensitive) == 0)
+      {
+        value = v->value;
+        found = true;
+        break;
+      }
+    }
+
+    result += text.mid(at, match.capturedStart() - at);
+    result += (found ? value : match.captured(0));
+    at = match.capturedEnd();
+  }
+
+  result += text.mid(at);
+  return result;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -343,6 +424,29 @@ ConfigFile::ISSUES ConfigFile::Diagnose(const Contents& contents)
 {
   ISSUES issues;
 
+  // Variables first: a route pointing at a name nothing defines is reported
+  // against that route below, and this explains the names themselves.
+  for (VARIABLES::const_iterator i = contents.variables.begin(); i != contents.variables.end(); i++)
+  {
+    if (i->name.isEmpty())
+      continue;
+
+    if (i->value.trimmed().isEmpty())
+    {
+      issues.push_back({Issue::Level::kWarning, -1, QObject::tr("Variable \"%1\" has no address, so routes using it have nowhere to go.").arg(i->name)});
+      continue;
+    }
+
+    for (VARIABLES::const_iterator j = i + 1; j != contents.variables.end(); j++)
+    {
+      if (j->name.compare(i->name, Qt::CaseInsensitive) == 0)
+      {
+        issues.push_back({Issue::Level::kWarning, -1, QObject::tr("Variable \"%1\" is defined more than once; the first definition is the one used.").arg(i->name)});
+        break;
+      }
+    }
+  }
+
   int runnable = 0;
 
   for (size_t i = 0; i < contents.routes.size(); i++)
@@ -373,18 +477,44 @@ ConfigFile::ISSUES ConfigFile::Diagnose(const Contents& contents)
       continue;
     }
 
+    // A name nothing defines cannot be turned into an address, so the route has
+    // nowhere to go. The likeliest way to arrive here is opening the file in
+    // the desktop application and saving it, which drops the definitions while
+    // leaving the references that depend on them.
+    QStringList undefined;
+    const QString addresses[] = {route.src.addr.ip, route.dst.addr.ip, route.src.multicastInterfaceIP, route.dst.multicastInterfaceIP};
+    for (const QString& address : addresses)
+    {
+      const QStringList names = VariableReferences(address);
+      for (const QString& name : names)
+      {
+        if (Resolve(QStringLiteral("$") + name, contents.variables) == QStringLiteral("$") + name && !undefined.contains(name))
+          undefined.append(name);
+      }
+    }
+
+    if (!undefined.isEmpty())
+    {
+      issues.push_back({Issue::Level::kError, index,
+                        QObject::tr("No variable named %1 is defined, so this route has no address to use.")
+                          .arg(QStringLiteral("\"$") + undefined.join(QStringLiteral("\", \"$")) + QLatin1Char('"'))});
+      continue;
+    }
+
     if (route.enable)
       ++runnable;
 
     // Bound to loopback, this only ever hears from the machine it runs on. It
     // is a valid thing to want and an easy thing to do by accident, and from
-    // the sending end it is indistinguishable from a wrong port.
-    if (route.src.addr.ip == QLatin1String("127.0.0.1") || route.src.addr.ip.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0)
+    // the sending end it is indistinguishable from a wrong port. Checked after
+    // resolution, since a variable can just as easily point at loopback.
+    const QString srcIP = Resolve(route.src.addr.ip, contents.variables);
+    if (srcIP == QLatin1String("127.0.0.1") || srcIP.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0)
     {
       issues.push_back({Issue::Level::kWarning, index,
                         QObject::tr("Incoming IP is %1, so this route only accepts traffic from this machine. "
                                     "Leave it empty to listen on every network interface.")
-                          .arg(route.src.addr.ip)});
+                          .arg(srcIP)});
     }
   }
 
@@ -439,6 +569,7 @@ void ConfigFile::LoadLines(const QStringList& lines, Contents& contents)
   for (QStringList::const_iterator i = lines.begin(); i != lines.end(); i++)
   {
     LoadSettingsLine(*i, contents.settings);
+    LoadVariableLine(*i, contents.variables);
     LoadRouteLine(*i, contents.routes, contents.itemStateTable);
     LoadConnectionLine(*i, contents.connections);
   }
@@ -543,10 +674,28 @@ void ConfigFile::SaveConnections(QTextStream& stream, const Router::CONNECTIONS&
 
 void ConfigFile::Save(QTextStream& stream, const Contents& contents)
 {
-  // Section order matches MainWindow::SaveToDevice.
+  // Section order matches MainWindow::SaveToDevice, with the variables written
+  // after the settings and before anything that refers to them, so the file
+  // reads in the order it makes sense in.
   SaveSettings(stream, contents.settings);
+  SaveVariables(stream, contents.variables);
   SaveRoutes(stream, contents.routes, contents.itemStateTable);
   SaveConnections(stream, contents.connections);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void ConfigFile::SaveVariables(QTextStream& stream, const VARIABLES& variables)
+{
+  for (VARIABLES::const_iterator i = variables.begin(); i != variables.end(); i++)
+  {
+    // A variable with no name could not be referred to, and would come back as
+    // an unnamed row on the next load.
+    if (i->name.isEmpty())
+      continue;
+
+    stream << QStringLiteral("Variable,%1,%2\n").arg(FileUtils::QuotedString(i->name)).arg(FileUtils::QuotedString(i->value));
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

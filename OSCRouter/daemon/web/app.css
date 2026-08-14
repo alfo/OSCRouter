@@ -328,6 +328,14 @@ main {
 .endpoint .detail { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .endpoint .unset { color: var(--dim); font-style: italic; font-family: inherit; }
 
+/* A $name reads as a reference rather than as a literal address. */
+.endpoint .var-ref { color: var(--connect); }
+.endpoint .var-ref, .endpoint .var-missing { cursor: help; }
+.endpoint .var-missing { color: var(--error); }
+
+.field-hint.resolved { color: var(--connect); }
+.field-hint.resolved.unresolved { color: var(--error); }
+
 .arrow { color: var(--dim); flex: none; }
 
 .route-note {

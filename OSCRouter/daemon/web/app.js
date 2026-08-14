@@ -242,6 +242,141 @@ function relativeTime(epochSeconds) {
   return Math.floor(s / 86400) + 'd ago';
 }
 
+// ---------------------------------------------------------------- variables
+
+// Mirrors ConfigFile::Resolve. The daemon is what actually substitutes these
+// before the routing engine sees them; this is so the interface can show what
+// an address will come out as.
+var VARIABLE_PATTERN = /\$([A-Za-z0-9_-]+)/g;
+
+function variables() {
+  return config.variables || (config.variables = []);
+}
+
+function resolveText(text) {
+  if (!text) return text;
+  return String(text).replace(VARIABLE_PATTERN, function (whole, name) {
+    var found = variables().filter(function (v) {
+      return v.name && v.name.toLowerCase() === name.toLowerCase();
+    })[0];
+    return found ? found.value : whole;
+  });
+}
+
+function referencedNames(text) {
+  if (!text) return [];
+  var names = [];
+  String(text).replace(VARIABLE_PATTERN, function (whole, name) { names.push(name); return whole; });
+  return names;
+}
+
+function hasUnresolved(text) {
+  return referencedNames(text).some(function (name) {
+    return !variables().some(function (v) { return v.name && v.name.toLowerCase() === name.toLowerCase(); });
+  });
+}
+
+// Every address field in the configuration, so usage can be counted and a
+// rename can follow through.
+function addressFields() {
+  var fields = [];
+  config.routes.forEach(function (route) {
+    fields.push({get: function () { return route.src.ip; }, set: function (v) { route.src.ip = v; }});
+    fields.push({get: function () { return route.dst.ip; }, set: function (v) { route.dst.ip = v; }});
+    fields.push({get: function () { return route.src.multicastInterfaceIP; }, set: function (v) { route.src.multicastInterfaceIP = v; }});
+    fields.push({get: function () { return route.dst.multicastInterfaceIP; }, set: function (v) { route.dst.multicastInterfaceIP = v; }});
+  });
+  (config.connections || []).forEach(function (connection) {
+    fields.push({get: function () { return connection.ip; }, set: function (v) { connection.ip = v; }});
+  });
+  return fields;
+}
+
+function usageCount(name) {
+  if (!name) return 0;
+  var lower = name.toLowerCase();
+  return addressFields().filter(function (f) {
+    return referencedNames(f.get()).some(function (n) { return n.toLowerCase() === lower; });
+  }).length;
+}
+
+// Renaming a variable that six routes point at should not break six routes.
+function renameReferences(from, to) {
+  if (!from || !to || from === to) return;
+  var pattern = new RegExp('\\$' + from.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + '\\b', 'gi');
+  addressFields().forEach(function (f) {
+    var value = f.get();
+    if (value && pattern.test(value))
+      f.set(String(value).replace(pattern, '$' + to));
+  });
+}
+
+function renderVariables() {
+  var body = el('variablesBody');
+  body.textContent = '';
+
+  variables().forEach(function (variable, index) {
+    var row = document.createElement('tr');
+
+    function cell(child) {
+      var td = document.createElement('td');
+      if (child) td.appendChild(child);
+      row.appendChild(td);
+      return td;
+    }
+
+    var previous = variable.name;
+    var nameInput = makeInput(variable.name, function (v) {
+      variable.name = v;
+      markDirty();
+    }, {placeholder: 'console', className: 'label'});
+    // Applied when the field is left rather than on each keystroke, so the
+    // references are not rewritten to every half-typed name along the way.
+    nameInput.addEventListener('change', function () {
+      renameReferences(previous, variable.name);
+      previous = variable.name;
+      renderVariables();
+      renderRoutes();
+      renderConnections();
+    });
+    cell(nameInput);
+
+    cell(makeInput(variable.value, function (v) {
+      variable.value = v;
+      markDirty();
+      renderRoutes();
+    }, {placeholder: '10.101.77.5', className: 'ip'}));
+
+    var count = usageCount(variable.name);
+    var used = make('span', count ? '' : 'field-hint', count === 0 ? 'not used' : count + (count === 1 ? ' address' : ' addresses'));
+    cell(used);
+
+    var removeBtn = make('button', 'btn small danger', '✕');
+    removeBtn.title = count ? 'Remove — ' + count + ' address(es) refer to this and will stop resolving' : 'Remove this variable';
+    removeBtn.addEventListener('click', function () {
+      variables().splice(index, 1);
+      markDirty();
+      renderVariables();
+      renderRoutes();
+    });
+    cell(removeBtn);
+
+    body.appendChild(row);
+  });
+
+  el('variablesEmpty').hidden = variables().length !== 0;
+
+  var list = el('variables');
+  list.textContent = '';
+  variables().forEach(function (variable) {
+    if (!variable.name) return;
+    var option = document.createElement('option');
+    option.value = '$' + variable.name;
+    option.textContent = '$' + variable.name + ' — ' + (variable.value || 'no address');
+    list.appendChild(option);
+  });
+}
+
 // -------------------------------------------------------------- route model
 
 function emptyRoute() {
@@ -455,7 +590,16 @@ function buildEndpointSpan(route, isSrc) {
   if (isEndpointIncomplete(endpoint, isSrc)) {
     span.appendChild(make('span', 'unset', 'not set'));
   } else {
-    span.appendChild(make('span', 'detail', endpointSummary(endpoint, isSrc)));
+    var detail = make('span', 'detail', endpointSummary(endpoint, isSrc));
+    // The reference is what is shown, since that is what was written and what
+    // makes the route readable; the address it resolves to is on hover.
+    if (referencedNames(endpoint.ip).length) {
+      detail.classList.add(hasUnresolved(endpoint.ip) ? 'var-missing' : 'var-ref');
+      detail.title = hasUnresolved(endpoint.ip)
+        ? 'No variable of that name is defined'
+        : 'Resolves to ' + resolveText(endpoint.ip);
+    }
+    span.appendChild(detail);
   }
 
   var connection = usesTcp(endpoint);
@@ -854,11 +998,35 @@ function buildSide(route, isSrc) {
   side.appendChild(field(info.portLabel, portInput, portHint(endpoint.protocol, isSrc), isSrc && info.portRequired));
 
   if (info.hasIP) {
-    side.appendChild(field(isSrc ? 'From IP' : 'To IP', makeInput(endpoint.ip, function (v) {
+    var ipInput = makeInput(endpoint.ip, function (v) {
       endpoint.ip = v;
       markDirty();
+      paintResolved();
       refreshHead(route);
-    }, {placeholder: isSrc ? 'any address' : 'reply to sender'}), ipHint(isSrc)));
+    }, {placeholder: isSrc ? 'any address' : 'reply to sender'});
+    ipInput.setAttribute('list', 'variables');
+
+    var ipField = field(isSrc ? 'From IP' : 'To IP', ipInput, ipHint(isSrc));
+
+    // What a "$name" actually comes out as, so the address in use is never
+    // something you have to go to another tab to work out.
+    var resolved = make('p', 'field-hint resolved');
+    ipField.appendChild(resolved);
+
+    function paintResolved() {
+      var names = referencedNames(endpoint.ip);
+      if (!names.length) {
+        resolved.textContent = '';
+        return;
+      }
+      resolved.textContent = hasUnresolved(endpoint.ip)
+        ? '⚠ No variable named $' + names.join(', $') + ' is defined.'
+        : '→ ' + resolveText(endpoint.ip);
+      resolved.classList.toggle('unresolved', hasUnresolved(endpoint.ip));
+    }
+    paintResolved();
+
+    side.appendChild(ipField);
 
     // The desktop application hides this inside the IP field as "group,iface",
     // which is undiscoverable. It is its own field here.
@@ -867,6 +1035,7 @@ function buildSide(route, isSrc) {
       markDirty();
     }, {placeholder: 'default'});
     mcast.setAttribute('list', 'interfaces');
+    mcast.title = 'Accepts a $variable as well as an address.';
     side.appendChild(field('Multicast interface', mcast, 'Only used when the address above is a multicast group.'));
   } else {
     var note = make('p', 'field-hint', protocolInfo(endpoint.protocol).name + ' does not use an IP address.');
@@ -1145,7 +1314,11 @@ function renderConnections() {
     cell(makeInput(connection.label, function (v) { connection.label = v; markDirty(); }, {className: 'label'}));
     cell(makeSelect(['Server', 'Client'], connection.server ? 0 : 1, function (v) { connection.server = (v === 0); markDirty(); }));
     cell(makeSelect(FRAME_MODES, connection.frameMode, function (v) { connection.frameMode = v; markDirty(); }));
-    cell(makeInput(connection.ip, function (v) { connection.ip = v; markDirty(); }, {className: 'ip'}));
+    var connIp = makeInput(connection.ip, function (v) { connection.ip = v; markDirty(); renderRoutes(); }, {className: 'ip'});
+    connIp.setAttribute('list', 'variables');
+    if (referencedNames(connection.ip).length)
+      connIp.title = hasUnresolved(connection.ip) ? 'No variable of that name is defined' : 'Resolves to ' + resolveText(connection.ip);
+    cell(connIp);
     cell(makeInput(connection.port, function (v) { connection.port = parseInt(v, 10) || 0; markDirty(); }, {type: 'number', className: 'port'}));
 
     var removeBtn = make('button', 'btn small danger', '✕');
@@ -1327,6 +1500,9 @@ function loadConfig() {
     config = data;
     adoptRoutes();
     markClean();
+    // Before the routes, which read the variables to show what each address
+    // resolves to.
+    renderVariables();
     renderRoutes();
     renderConnections();
     renderSettings();
@@ -1382,6 +1558,15 @@ function initActions() {
   el('routeSearch').addEventListener('input', function () {
     filterText = el('routeSearch').value;
     renderRoutes();
+  });
+
+  el('addVariable').addEventListener('click', function () {
+    variables().push({name: '', value: ''});
+    markDirty();
+    renderVariables();
+    var rows = el('variablesBody').children;
+    var last = rows[rows.length - 1];
+    if (last) last.querySelector('input').focus();
   });
 
   el('addTcp').addEventListener('click', function () {

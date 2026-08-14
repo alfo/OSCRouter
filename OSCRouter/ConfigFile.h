@@ -44,16 +44,20 @@ class QTextStream;
 //
 //   Settings,<sACNIP>,<artNetIP>,<levelChangesOnly>,<script>,<otpIP>,<otpModule>...
 //   Mute,<muteAllIncoming>,<muteAllOutgoing>
+//   Variable,<name>,<value>
 //   <label>,<srcIP>,<srcPort>,<srcPath>,<inMin>,<inMax>,
 //     <dstIP>,<dstPort>,<dstPath>,<outMin>,<outMax>[,<script>,<srcMulticastIP>,
 //     <srcProtocol>,<dstProtocol>,<enabled>,<unmuted>,<dstMulticastIP>,
 //     <notes>]                                                          (route)
 //   <label>,<isServer>,<frameMode>,<ip>,<port>                          (TCP connection)
 //
-// <notes> is the one field upstream does not write. The format has always been
-// extended at the tail and every reader stops at the last field it knows about,
-// so upstream loads these files unchanged and simply drops the notes if it
-// saves one back out.
+// <notes> and the Variable record are the two things upstream does not write.
+// The format has always been extended at the tail and every reader stops at the
+// last field it knows about, so upstream loads these files unchanged; a
+// three-field Variable record matches none of its parsers and is skipped the
+// same way any unrecognised line is. Both are dropped if upstream saves the
+// file back out — and since a route referring to "$name" would then be left
+// with a name nothing defines, Diagnose reports exactly that.
 //
 // Every parser ignores lines it does not recognise, because the original format
 // is read in one pass per section over the same set of lines.
@@ -70,16 +74,42 @@ public:
 class ConfigFile
 {
 public:
+  // A named address, written once and referred to as "$name" wherever an IP
+  // would otherwise be typed. A console or a media server tends to appear in
+  // every route that touches it, and without this, moving it to a different
+  // address means editing each of them and getting all of them right.
+  struct Variable
+  {
+    QString name;
+    QString value;
+  };
+
+  typedef std::vector<Variable> VARIABLES;
+
   struct Contents
   {
     Router::ROUTES routes;
     Router::CONNECTIONS connections;
     Router::Settings settings;
+    VARIABLES variables;
     ItemStateTable itemStateTable;
   };
 
+  // Substitutes "$name" for the value of each defined variable. References to
+  // names that are not defined are left as they are: they cannot be resolved,
+  // and leaving them visible is what lets Diagnose report them and the routing
+  // engine fail loudly rather than quietly connecting somewhere unintended.
+  static QString Resolve(const QString& text, const VARIABLES& variables);
+
+  // Whether the text refers to any variable at all, defined or not.
+  static bool HasVariableReference(const QString& text);
+
+  // Every "$name" in the text, in order of appearance.
+  static QStringList VariableReferences(const QString& text);
+
   // Per-record parsers, each appending to or updating the supplied output.
   static void LoadSettingsLine(const QString& line, Router::Settings& settings);
+  static void LoadVariableLine(const QString& line, VARIABLES& variables);
   static void LoadRouteLine(const QString& line, Router::ROUTES& routes, ItemStateTable& itemStateTable);
   static void LoadConnectionLine(const QString& line, Router::CONNECTIONS& connections);
 
@@ -122,6 +152,7 @@ public:
   // Serialisation. These take plain structs, so the caller is responsible for
   // having already gathered them (from widgets, or from the daemon's state).
   static void SaveSettings(QTextStream& stream, const Router::Settings& settings);
+  static void SaveVariables(QTextStream& stream, const VARIABLES& variables);
   static void SaveRoutes(QTextStream& stream, const Router::ROUTES& routes, const ItemStateTable& itemStateTable);
   static void SaveConnections(QTextStream& stream, const Router::CONNECTIONS& connections);
   static void Save(QTextStream& stream, const Contents& contents);

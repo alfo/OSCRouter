@@ -211,8 +211,25 @@ void RouterController::PrepareForRouting(Router::ROUTES& routes, Router::CONNECT
   {
     Router::sRoute route = m_Contents.routes[i];
 
+    // Variables are substituted into this copy only. The configuration keeps
+    // the "$name" the person wrote, which is the whole point of it, while the
+    // routing engine only ever sees addresses.
+    //
+    // Done before the duplicate check and the address-keyed state table below,
+    // so a route written as "$console" and one written out in full are
+    // recognised as the same address rather than each getting their own entry.
+    route.src.addr.ip = ConfigFile::Resolve(route.src.addr.ip, m_Contents.variables);
+    route.dst.addr.ip = ConfigFile::Resolve(route.dst.addr.ip, m_Contents.variables);
+    route.src.multicastInterfaceIP = ConfigFile::Resolve(route.src.multicastInterfaceIP, m_Contents.variables);
+    route.dst.multicastInterfaceIP = ConfigFile::Resolve(route.dst.multicastInterfaceIP, m_Contents.variables);
+
     if (!ValidPort(route.src.protocol, route.src.addr.port))
       continue;  // port required
+
+    // Nothing defines this name, so there is no address to route to. Diagnose
+    // reports it against the route; the engine is simply not given it.
+    if (ConfigFile::HasVariableReference(route.src.addr.ip) || ConfigFile::HasVariableReference(route.dst.addr.ip))
+      continue;
 
     bool duplicate = false;
     for (Router::ROUTES::const_iterator j = routes.begin(); j != routes.end(); j++)
@@ -250,8 +267,15 @@ void RouterController::PrepareForRouting(Router::ROUTES& routes, Router::CONNECT
   {
     Router::sConnection connection = m_Contents.connections[i];
 
+    // As with routes: resolved into the copy the engine is given, never into
+    // the configuration itself.
+    connection.addr.ip = ConfigFile::Resolve(connection.addr.ip, m_Contents.variables);
+
     if (connection.addr.port == 0)
       continue;  // port required
+
+    if (ConfigFile::HasVariableReference(connection.addr.ip))
+      continue;  // no such variable, so no address
 
     if (connection.addr.ip == QLatin1String("0.0.0.0"))
       connection.addr.ip.clear();
@@ -480,12 +504,17 @@ QJsonObject RouterController::ConfigToJson() const
                                    {"port", static_cast<int>(connection.addr.port)}});
   }
 
+  QJsonArray variables;
+  for (ConfigFile::VARIABLES::const_iterator i = m_Contents.variables.begin(); i != m_Contents.variables.end(); i++)
+    variables.append(QJsonObject{{"name", i->name}, {"value", i->value}});
+
   QJsonArray otpModules;
   for (size_t i = 0; i < static_cast<size_t>(otp::ModuleType::kCount); i++)
     otpModules.append(m_Contents.settings.otpModuleTypes.find(static_cast<otp::ModuleType>(i)) != m_Contents.settings.otpModuleTypes.end());
 
   return QJsonObject{{"routes", routes},
                      {"connections", connections},
+                     {"variables", variables},
                      {"settings", QJsonObject{{"sACNIP", m_Contents.settings.sACNIP},
                                               {"artNetIP", m_Contents.settings.artNetIP},
                                               {"otpIP", m_Contents.settings.otpIP},
@@ -554,6 +583,13 @@ bool RouterController::ConfigFromJson(const QJsonObject& json, QString& error)
     connection.addr.port = static_cast<unsigned short>(obj.value("port").toInt());
 
     contents.connections.push_back(connection);
+  }
+
+  const QJsonArray variables = json.value("variables").toArray();
+  for (QJsonArray::const_iterator i = variables.begin(); i != variables.end(); i++)
+  {
+    const QJsonObject obj = i->toObject();
+    contents.variables.push_back({obj.value("name").toString(), obj.value("value").toString()});
   }
 
   const QJsonObject settings = json.value("settings").toObject();
